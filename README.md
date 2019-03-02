@@ -1,12 +1,12 @@
-Logster - A simple multi-log file shipper
-=========================================
+Logster - A simple log shipper for multiple files
+=================================================
+
+**STATUS**: Development started, no functional release yet
 
 Abstract
 --------
 
 Logster is a simple tool to forward logs to another server running a compatible server.
-
-**STATUS**: Development started, no functional release yet
 
 Logster is composed of a client and a server daemon using a simple command
 protocol to optimize log transfer and guarantee delivery.
