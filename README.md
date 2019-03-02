@@ -6,8 +6,13 @@ Abstract
 
 Logster is a simple tool to forward logs to another server running a compatible server.
 
-Architecture
-------------
+**STATUS**: Development started, no functional release yet
+
+Logster is composed of a client and a server daemon using a simple command
+protocol to optimize log transfer and guarantee delivery.
+
+Logster client and server is written in [Go](http://golang.org) and
+is tested for Linux only for now.
 
 Client logsterc
 ---------------
@@ -28,7 +33,7 @@ files to stream.
     hostname=log.mgmt.neotel.at
     port=8901
     compression=none     # snappy, gzip, lz4
-    
+
     [stream:messages]
     path=/var/log/messages
     method=watch
@@ -143,6 +148,32 @@ For example:
 
     %CLOSE 231;200;client shutdown
     %CLOSE 231;400;file deleted
+
+Log sending mechanisms
+----------------------
+
+### Send after close
+
+For the send after close mechanism, the file is sent to the server only after
+the file is closed and rotated.
+
+The rotated file will be streamed to the server verbatim with the optimal
+perfomance (rate limiting will be considered when implemented).
+
+This sending mechanism will provide optimal performance and allows for very
+simple housekeeping by also removing the file after being sent.
+
+### Stream
+
+The file is watched for changes and will be streamed immediatelly. To improve
+performance changes will be sent when minimum size (default 4Kb) is reached.
+
+The last sent position will be tracked and written to a state file. The state
+file holds the state for all streams being processed. There is a minimal chance
+of logs being sent twice in case of a crashing before writing the state.
+
+The file may also be automatically deleted after the file has been closed.
+This also requires a watch on the file to react on the file close event.
 
 Building
 --------
