@@ -12,3 +12,5 @@
 *.out
 logsterc
 logsterd
+.vscode/launch.json
+.markdownlint.yaml
