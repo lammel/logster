@@ -39,7 +39,7 @@ files to stream.
     method=watch
     onrotate=follow
 
-    [send:]
+    [stream:backup]
     directory=/var/log/sipproxyd/backup
     method=watch
     filepattern='*.log.*.gz'
@@ -47,7 +47,7 @@ files to stream.
 ### Log streaming
 
 Logfiles can be streamed to the server. This requires logster to
-follow the current position in the files and send new content as 
+follow the current position in the files and send new content as
 soon as possible to the server.
 
 ### File sending
@@ -57,97 +57,86 @@ For file sending only existing files are copied to the server
 Server logsterd
 ---------------
 
-The logster daemon (or logsterd) is a simple daemon accepting incoming
-connections on multiple interfaces.
+The logster daemon (or logsterd) is a simple daemon accepting mulitple
+incoming connections on a single port.
 
-Predfined tags can be configured on an interface.
+The server will be configured to match incoming meta data like hostname,
+filename or other meta data to an outgoing file.
 
-    /var/log/logster/<tag>/<logname>.log
+An incoming log streaming request will then be matched to an output
+logfile configuration.
+
+    [log.live2.coolapp]
+    path=/var/log/logster/live/coolapp.log
+    maxsize=10M
+    rotate=10
+
+    [log.live2.niceapp]
+    path=/var/log/logster/live2/sipproxyd.log
+    maxsize=10M
+    rotate=10
 
 Log Protocol
 ------------
 
-The log protocol allows for a simple handshake between server and client and
-is a pure text based protocol.
+The log protocol is a very minimal initial handshape between client
+and server to be able to provide metadata.
 
-A protocol command can be identified as `\n%%`. Clients are requested
-to escape such a sequence using `\n\%%`.
+The protocol is intentionally not based on HTTP to avoid unneeded
+overhead for this simple use case.
 
-For a new logstream to be initialized some meta data will be exchanged
-and a unique streaming id will be generated. 
+* Client initiate TCP connection
+* Server accepts connection, sends HELLO
+* Client inits stream
+* Server acknowledges stream
+* Client streams logfile
+* Client or Server close the TCP connection
 
-Known protocol actions:
+### Stream Initialization
 
-* Initiate stream
-* Send to stream
-* Close stream
+```text
+>>  TCP Connect
+ << ### Welcome to Logster server v0.1
+ << STREAMID abcdef
+>>  INIT STREAM host:/path svc:servicename more:<meta>
+ << 200 OK Ready to accept data
+```
 
-The corresponding server commands would look like this:
+In case of error an appropriate error text is shown and the
+command may be retried after a few seconds.
 
-    %%INIT;<hostname>;<logfile>
-    %%SEND <streamid>;<size>
-    %%CLOSE <streamid>
+### Streaming Data
 
-### Initiate stream
+Data is now sent directly over TCP (no overhead, only TCP headers).
 
-To initiate a logstream an `INITIATE STREAM` message is sent to the server,
-which will be either accepted with a streaming ID or rejected.
+In case any unrecoverable failure occures, the underlying TCP connection
+of the stream must simply be close/disconnected.
 
-Data required to initiate a stream:
+If further data shall be sent, the stream must then be reconnected and
+initialized again.
 
-* Local hostname
-* File
+```text
+>>  DATA.DATA.DATA.DATA.DATA.DATA...
+>>  close TCP connection
+ << or server closes TCP connection
+```
 
-Example for initiating a stream and receiving a stream ID:
+## Rate Limiting
 
-    %%INIT;buildsrv1;/var/log/messages
-    200 OK ID:231
+Rate limiting can be achieved, by throtteling the amount of data sent per
+time. *Currently not implemented.*
 
-In case of an error, no stream ID will be received.
-A retry is allowed after 5s.
+Handling
+--------
 
-    %%INIT;buildsrv1;/var/log/messages
-    500 ERR No space left
+A client controls all streams and can issue a streamFile.
 
-### Send stream
+    client := logster.NewClient("log.example.com:8901")
+    n, err := client.StreamFile("/var/log/app.log")
+    n, err := client.StreamFile("/var/log/messages")
 
-To send data on a stream each stream command will tell the 
-server the size of data to expect.
-
-    %%SEND <streamid>;<bytes>
-
-The server will then gather this many bytes and then will start looking
-for a command sequence again.
-
-A bulk of log messages would be sent like this:
-
-    %%INIT mymachine;/var/log/app.log
-    !!OK ID:231
-    %%SEND 231;183
-    2018-02-12 17:33:11.231 [DEBUG] HTTP request received on eth0
-    2018-02-12 17:33:11.237 [INFO] Processing GET /api/version
-    2018-02-12 17:33:11.259 [INFO] Return 200 OK for /api/version
-    !!OK
-    %%SEND 231;129
-    2018-02-12 17:33:12.992 [DEBUG] Schedule cleanup jobs
-    2018-02-12 17:33:13.123 [INFO] Scheduled 5 jobs successfully
-    !!OK
-
-In the above example a stream is initialized and 2 send commands are executed
-sending 5 lines of logs in total. Each send is acknowledged, so the client
-knows that the lines have been received (and usually written) by the server.
-
-### Close stream
-
-A log stream can be closed using the CLOSE command. Further information on
-the reason can be provided.
-
-    %%CLOSE <streamid>;<code>;<reason>
-
-For example:
-
-    %CLOSE 231;200;client shutdown
-    %CLOSE 231;400;file deleted
+The logster client will follow file changes automatically and 
+reconnect to the server.
 
 Log sending mechanisms
 ----------------------
