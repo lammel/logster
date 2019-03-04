@@ -65,7 +65,7 @@ func (server Server) acceptConnections(l net.Listener) error {
 		s := append(server.streams, stream)
 		log.Println("[DBG] Adding stream ", stream)
 		server.streams = s
-		stream.writeResponse("OK STREAM " + stream.streamID)
+		stream.writeResponse("OK " + stream.streamID)
 		go stream.handleCommands()
 	}
 }
@@ -88,9 +88,9 @@ func (stream LogStream) writeResponse(message string) error {
 	log.Println("[DBG] Writing message", message)
 	conn := stream.conn
 	writer := bufio.NewWriter(conn)
-	int, err := writer.WriteString(message + "\n")
-	log.Println("[DBG] Wrote", int, "bytes on connection")
+	n, err := writer.WriteString(message + "\n")
 	writer.Flush()
+	log.Println("[DBG] Wrote response", message, "with", n, "bytes on stream", stream.streamID)
 	return err
 }
 
@@ -98,15 +98,19 @@ func (stream LogStream) writeResponse(message string) error {
 func (stream ServerLogStream) awaitCommand() (string, error) {
 	conn := stream.conn
 	reader := bufio.NewReader(conn)
-	line, _, err := reader.ReadLine()
+	log.Println("[DBG] Reading await command on stream", stream.streamID)
+	line, err := reader.ReadString('\n')
 	if err != nil {
-		log.Println("ERROR on awaitResponse:", err)
+		log.Println("ERROR on awaitCommand with line", line, ":", err)
+		return "", err
 	}
-	return string(line), err
+	log.Println("Read: '" + line + "'")
+	return string(line), nil
 }
 
 // handleCommand will wait and handle new commands
 func (stream ServerLogStream) handleCommands() {
+	cmdIdx := 0
 	for {
 		log.Println("[DBG] Await next command")
 		line, err := stream.awaitCommand()
@@ -122,9 +126,10 @@ func (stream ServerLogStream) handleCommands() {
 			stream.writeResponse("ERR 500 Invalid command")
 			continue
 		}
-		cmds := strings.Split(strings.Replace(strings.TrimLeft(line, CommandPrefix), ",", " ", -1), " ")
+		cmds := strings.Split(strings.Replace(strings.TrimLeft(strings.TrimSpace(line), CommandPrefix), ",", " ", -1), " ")
 		cmd := cmds[0]
 		args := cmds[1:]
+		log.Println("[DBG] Process command ", cmdIdx, cmd)
 		switch cmd {
 		case "INIT":
 			log.Println("[DBG] Init logstream", line)
@@ -135,7 +140,9 @@ func (stream ServerLogStream) handleCommands() {
 			stream.hostname = args[0]
 			stream.filename = args[1]
 			log.Println("[INFO] Using hostname", stream.hostname, "filename", stream.filename)
-			stream.writeResponse("OK " + stream.streamID)
+			stream.writeResponse("OK")
+			stream.writeResponse(fmt.Sprintf("OK %s %d", stream.streamID, cmdIdx))
+
 		case "SEND":
 			log.Println("Send to logstream", line)
 			if len(args) < 1 {
@@ -150,18 +157,37 @@ func (stream ServerLogStream) handleCommands() {
 			}
 			n, err := stream.copy(length)
 			if err != nil {
-				stream.writeResponse("ERR 500 Failed to find stream " + args[0])
+				stream.writeResponse("ERR 500 Failed to read " + args[0] + " bytes from stream")
 			} else {
-				stream.writeResponse(fmt.Sprintf("OK %d", n))
+				stream.writeResponse(fmt.Sprintf("OK %d %d", cmdIdx, n))
+			}
+		case "STREAM":
+			log.Println("[INFO] Starting streaming of data", line)
+			err := stream.writeResponse(fmt.Sprintf("OK %d", cmdIdx))
+			if err != nil {
+				log.Println("[ERROR] During WriteResponse")
+			}
+			log.Println("Starting stream now")
+			n, err := stream.copyStream()
+			log.Println("Stream", stream.streamID, "ending after", n, "bytes:", err)
+			if err != nil {
+				if err == io.EOF {
+					log.Println("End of stream", err)
+				} else {
+					stream.writeResponse("ERR 500 Failed after " + string(n) + " bytes from stream" + stream.streamID)
+				}
+			} else {
+				stream.writeResponse(fmt.Sprintf("OK %d %d", cmdIdx, n))
 			}
 		case "CLOSE":
 			log.Println("Close logstream", stream.streamID)
-			stream.writeResponse("OK")
+			stream.writeResponse(fmt.Sprintf("OK %d", cmdIdx))
 			stream.close()
 			return
 		default:
 			stream.writeResponse("ERR 500 Unknown command" + cmd)
 		}
+		cmdIdx = cmdIdx + 1
 	}
 }
 
@@ -227,15 +253,59 @@ func (stream ServerLogStream) copy(len int64) (int64, error) {
 	// reader := bufio.NewReader(conn)
 	// writer := bufio.NewWriter(file)
 	log.Println("[DBG] Copy", len, "bytes to file", file.Name())
-	n, err := io.CopyN(file, conn, int64(len))
+	//timeoutDuration := 5 * time.Second
+	//	conn.SetReadDeadline(time.Now().Add(timeoutDuration))
+	buf := make([]byte, len)
+	reader := io.LimitReader(conn, len)
+	n, err := reader.Read(buf)
+	log.Println("Read:", string(buf), "with", n, "bytes")
 	if err != nil {
-		log.Println("Error during read of", len, " bytes:", err)
-		stream.writeResponse(fmt.Sprintf("%sERR %d %s", CommandPrefix, 500, "Failed to read"))
+		log.Println("Could not read full len", len, "from connection", conn)
+		return int64(n), err
+	}
+	n, err = file.Write(buf)
+	// n, err := io.CopyN(file, conn, len)
+	//	conn.SetReadDeadline(time.Unix(0, 0))
+	if err != nil {
+		log.Println("Error during read of", len, " bytes (received", n, " bytes):", err)
 		return 0, err
 	}
-
 	log.Println("[DBG] Wrote", n, "bytes to", file.Name())
-	return n, nil
+	file.Sync()
+	return int64(n), nil
+}
+
+func (stream ServerLogStream) copyStream() (int64, error) {
+	conn := stream.conn
+	file := stream.localFile
+	bufsize := int64(512)
+	total := int64(0)
+	retry := 0
+	for {
+		n, err := io.CopyN(file, conn, bufsize)
+		total = total + n
+		log.Println("Read", total, "bytes total for stream", stream.streamID, "to local file", file.Name())
+		if err != nil {
+			if err == io.EOF {
+				retry = retry + 1
+				if retry < 2 {
+					log.Println("Retry", retry, "reading/writing after 1 second")
+					time.Sleep(1 * time.Second)
+					continue
+				}
+				log.Println("EOF reached")
+				break
+			} else {
+				log.Println("[ERROR] Error during read of buffer with", bufsize, "bytes (received", n, " bytes):", err)
+				return total, err
+			}
+		}
+		retry = 0
+	}
+
+	log.Println("[DBG] Wrote", total, "bytes to", file.Name())
+	file.Sync()
+	return total, nil
 }
 
 func (stream ServerLogStream) close() {
