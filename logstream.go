@@ -3,10 +3,11 @@ package logster
 import (
 	"bufio"
 	"io"
-	"log"
 	"net"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 const (
@@ -36,12 +37,12 @@ type LogStreamInterface interface {
 
 // Reconnect the underlying connection
 func (stream *LogStream) Reconnect(server string) error {
-	log.Println("[DBG] Reconnecting stream", stream.streamID)
+	log.Debug().Str("stream", stream.streamID).Msg("Reconnecting stream")
 	stream.conn.Close()
 	time.Sleep(2 * time.Second)
 	conn, err := net.Dial("tcp", server)
 	if err != nil {
-		log.Println("[ERROR] Unable to reconnect")
+		log.Error().Err(err).Msg("Unable to reconnect")
 		return err
 	}
 	stream.conn = conn
@@ -49,12 +50,12 @@ func (stream *LogStream) Reconnect(server string) error {
 }
 
 func (stream ServerLogStream) close() {
-	log.Println("[DBG] Closing connection", stream.streamID)
+	log.Debug().Str("stream", stream.streamID).Msg("Closing connection")
 	err := stream.conn.Close()
 	if err != nil {
-		log.Println("[ERROR] Failed to close stream", stream.streamID, err)
+		log.Error().Err(err).Str("stream", stream.streamID).Msg("Failed to close stream")
 	} else {
-		log.Println("[INFO] Successfully closed stream", stream.streamID)
+		log.Info().Str("stream", stream.streamID).Msg("Successfully closed stream")
 	}
 }
 
@@ -68,7 +69,7 @@ func (stream LogStream) writeMessage(msg string) error {
 	n, err := writer.WriteString(msg + "\n")
 	writer.Flush()
 	// conn.SetWriteDeadline(time.Unix(0, 0))
-	log.Println("[DBG] Wrote message", msg, "with", n, "bytes to stream", stream.streamID)
+	log.Debug().Str("stream", stream.streamID).Str("msg", msg).Int("count", n).Msg("Wrote message to stream")
 	return err
 }
 
@@ -76,18 +77,18 @@ func (stream LogStream) writeMessage(msg string) error {
 func (stream LogStream) awaitMessage() (string, error) {
 	conn := stream.conn
 	reader := bufio.NewReader(conn)
-	log.Println("[DBG] Reading and awaiting message on stream", stream.streamID)
+	log.Debug().Str("stream", stream.streamID).Msg("Reading and awaiting message on stream")
 	const timeoutDuration = 5 * time.Second
 	// conn.SetReadDeadline(time.Now().Add(timeoutDuration))
 	line, err := reader.ReadString('\n')
 	// conn.SetReadDeadline(time.Unix(0, 0))
 	if err != nil {
-		log.Println("Error on awaitMessage for stream", stream.streamID, ":", err)
+		log.Debug().Str("stream", stream.streamID).Err(err).Msg("Error on awaitMessage for stream")
 		if strings.Contains(err.Error(), "timeout") {
-			log.Println("Timeout detected for stream", stream.streamID)
+			log.Warn().Str("stream", stream.streamID).Err(err).Msg("Timeout detected for stream")
 		}
 		if strings.Contains(err.Error(), "closed") {
-			log.Println("Closed connection detected for stream", stream.streamID)
+			log.Warn().Str("stream", stream.streamID).Msg("Closed connection detected for stream")
 		}
 		stream.conn.Close()
 	}

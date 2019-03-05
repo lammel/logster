@@ -4,11 +4,13 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"log"
+
 	"net"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // Client handles a logster client connection
@@ -35,7 +37,7 @@ func (client *Client) NewLogStream(hostname string, file string) (*ClientLogStre
 	// connect to this socket
 	conn, err := net.Dial("tcp", client.server)
 	if err != nil {
-		log.Println("Failed to connect to server", client.server)
+		log.Error().Err(err).Str("server", client.server).Msg("Failed to connect to server")
 		return nil, err
 	}
 
@@ -44,45 +46,45 @@ func (client *Client) NewLogStream(hostname string, file string) (*ClientLogStre
 
 	line, err := stream.awaitMessage()
 	if err != nil {
-		log.Println("Failed to await Hello from server. Aborting")
+		log.Error().Err(err).Msg("Failed to await Hello from server. Aborting")
 		stream.Close()
 		return nil, err
 	}
-	log.Println("Connected to server:", line)
+	log.Info().Str("server", line).Msg("Connected to server")
 	line, err = stream.awaitMessage()
 	if err != nil {
-		log.Println("Failed to await StreamID from server. Aborting")
+		log.Error().Err(err).Msg("Failed to await StreamID from server. Aborting")
 		stream.Close()
 		return nil, err
 	}
-	resp := strings.Split(line, " ")
-	log.Println("[DBG] Response:", resp)
+	resp := strings.Split(strings.Trim(line, "\n"), " ")
+	log.Debug().Str("response", line).Msg("Response")
 	if resp[0] != "STREAMID" {
-		log.Println("Could not identify stream ID, aborting")
+		log.Info().Msg("Could not identify stream ID, aborting")
 		stream.Close()
 		return nil, err
 	}
 	stream.streamID = resp[1]
-	log.Println("[DBG] Using streamID:", stream.streamID)
+	log.Debug().Str("stream", stream.streamID).Msg("Received streamID from server")
 
 	stream.writeMessage(fmt.Sprintf("INIT STREAM %s:%s", hostname, file))
 	line, err = stream.awaitMessage()
 	if err != nil {
-		log.Println("ERROR on awaitResponse:", err)
+		log.Error().Err(err).Str("stream", stream.streamID).Msg("ERROR on awaitResponse:")
 		if strings.Contains(err.Error(), "timeout") {
-			log.Println("Timeout detected on stream", stream.streamID)
+			log.Error().Err(err).Msg("Timeout detected on stream")
 			stream.Close()
 		}
 		return nil, err
 	}
-	log.Println("[DBG] Response:", line)
+	log.Debug().Str("stream", stream.streamID).Str("line", line).Msg("Response")
 	if !strings.HasPrefix(line, "OK") {
-		log.Println("Failed to init stream")
+		log.Info().Msg("Failed to init stream")
 		stream.Close()
 	}
 
 	s := append(client.streams, &stream)
-	log.Println("[DBG] Adding new log stream:", stream)
+	log.Debug().Str("stream", stream.streamID).Str("server", line).Msg("Adding new log stream")
 	client.streams = s
 
 	return &stream, nil
@@ -105,9 +107,9 @@ func (client *Client) SendToStreamByPath(path string, data string) error {
 	if stream != nil {
 		err := stream.Send(data)
 		if err != nil {
-			log.Println("Error during send")
+			log.Info().Msg("Error during send")
 			if strings.Contains(err.Error(), "timeout") {
-				log.Println("Timeout on stream detected, recreating stream")
+				log.Info().Msg("Timeout on stream detected, recreating stream")
 			}
 			client.CloseLogStream(stream)
 			newstream, _ := client.NewLogStream(stream.hostname, stream.filename)
@@ -115,7 +117,7 @@ func (client *Client) SendToStreamByPath(path string, data string) error {
 
 		}
 	} else {
-		log.Println("Unable to find stream for path", path)
+		log.Info().Str("path", path).Msg("Unable to find stream for path")
 	}
 	return nil
 }
@@ -126,7 +128,7 @@ func (client *Client) FindStreamByPath(path string) *ClientLogStream {
 	streams := client.streams
 	for _, s := range streams {
 		if s == nil {
-			log.Println("Skipping nil stream", s)
+			log.Debug().Interface("stream", s).Msg("Skipping nil stream")
 			continue
 		}
 		if s.filename == path {
@@ -161,19 +163,19 @@ func (stream *ClientLogStream) StreamFileHandler(path string, lastPos int64) (in
 		file, err := os.Open(path)
 		defer file.Close()
 		if err != nil {
-			log.Println("Unable to open file", path, ":", err)
+			log.Error().Err(err).Str("path", path).Msg("Unable to open file")
 			return total, err
 		}
 		info, _ := file.Stat()
 		if info.Size() < pos {
-			log.Println("Last position greater than file size", pos, ">", info.Size(), "Starting from beginning of file")
+			log.Info().Int64("pos", pos).Int64("size", info.Size()).Msg("Last position greater than file size. Starting from beginning")
 			pos = 0
 		}
 		time.Sleep(1 * time.Second)
 		n, err := stream.StreamFile(file, pos)
 		total = total + n
 		pos = pos + n
-		log.Println("File", stream.filename, "new pos:", pos, "read:", n)
+		log.Debug().Int64("read", n).Int64("pos", pos).Int64("size", info.Size()).Msg("Read from file")
 
 		if err != nil {
 			retry = retry + 1
@@ -181,11 +183,11 @@ func (stream *ClientLogStream) StreamFileHandler(path string, lastPos int64) (in
 				if retry > 3 {
 					err := stream.Reconnect(stream.client.server)
 					if err != nil {
-						log.Println("Error during reconnect")
+						log.Info().Msg("Error during reconnect")
 					}
 				}
 			} else {
-				log.Println("[ERROR] StreamFile returned error", err)
+				log.Error().Err(err).Msg("StreamFile returned error")
 				lastErr = err
 				break
 			}
@@ -198,7 +200,7 @@ func (stream *ClientLogStream) StreamFileHandler(path string, lastPos int64) (in
 
 // StreamFile will search for a stream in streams list
 func (stream *ClientLogStream) StreamFile(file *os.File, lastPos int64) (int64, error) {
-	log.Println("Stream file ", file.Name(), "from position", lastPos)
+	log.Info().Str("path", file.Name()).Int64("pos", lastPos).Msg("Stream file from position")
 	file.Seek(lastPos, 0)
 	total := int64(0)
 	bufsize := int64(defaultBuffersize)
@@ -206,19 +208,19 @@ func (stream *ClientLogStream) StreamFile(file *os.File, lastPos int64) (int64, 
 		n, err := io.CopyN(stream.conn, file, bufsize)
 		total = total + n
 		if n > 0 {
-			log.Println("Sent", n, "bytes to stream", stream.streamID, "from file", file.Name())
+			log.Debug().Str("stream", stream.streamID).Str("path", file.Name()).Int64("count", n).Msg("Sent data to stream")
 		}
 		if err != nil {
 			if err == io.EOF {
-				log.Println("End Of File (EOF) reached for", file.Name())
+				log.Debug().Str("path", file.Name()).Msg("End of file (EOF) reached")
 				time.Sleep(1 * time.Second)
 				continue
 			}
-			log.Println("Error during StreamFile for", file.Name(), err)
+			log.Error().Err(err).Str("path", file.Name()).Msg("Error during StreamFile")
 			stream.conn.Close()
 			return total, err
 		}
-		log.Println("Read and written", n, "bytes.")
+		log.Debug().Int64("count", n).Msg("Read and written")
 	}
 	return total, nil
 }
@@ -233,17 +235,17 @@ func (stream ClientLogStream) Send(data string) error {
 	len, err := writer.WriteString(data)
 	writer.Flush()
 	if err != nil {
-		log.Println("Error during write:", err)
+		log.Error().Err(err).Msg("Error during write")
 	}
-	log.Println("[DBG] Wrote", len, "bytes to stream", stream.streamID, conn, "'", data, "'")
+	log.Debug().Str("stream", stream.streamID).Int("count", len).Msg("Wrote bytes to stream")
 	line, err := stream.awaitMessage()
 	if err != nil {
-		log.Println("[ERROR] Error during send:", err)
+		log.Error().Err(err).Msg("Error during send")
 		return err
 	}
-	log.Println("[DBG] Response:", line)
+	log.Debug().Str("line", line).Msg("Response:")
 	if strings.HasPrefix(line, "OK") {
-		log.Println("[DBG] Send OK")
+		log.Info().Msg("Send OK")
 	}
 	return nil
 }
@@ -253,11 +255,11 @@ func (stream ClientLogStream) Close() {
 	stream.writeMessage(fmt.Sprintf("CLOSE %s", stream.streamID))
 	line, err := stream.awaitMessage()
 	if err != nil {
-		log.Println("[ERROR] Error during close:", err)
+		log.Error().Err(err).Msg("Error during close")
 	} else {
-		log.Println("[DBG] Response:", line)
+		log.Debug().Str("line", line).Msg("Response:")
 		if strings.HasPrefix(line, "OK") {
-			log.Println("[DBG] Send OK")
+			log.Info().Msg("Send OK")
 		}
 
 	}

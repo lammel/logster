@@ -3,18 +3,19 @@ package logster
 import (
 	"fmt"
 	"io"
-	"log"
 	"math/rand"
 	"net"
 	"os"
 	"strings"
 	"time"
+
+	"github.com/rs/zerolog/log"
 )
 
 // Server handles a logster client connection
 type Server struct {
 	listener *net.Listener
-	address  string
+	Address  string
 	streams  []ServerLogStream
 }
 
@@ -28,15 +29,15 @@ type ServerLogStream struct {
 // NewServer initiates a new client connection
 func NewServer(address string) (*Server, error) {
 
-	log.Println("Attempt to listen at", address)
+	log.Info().Str("listen", address).Msg("Attempt to listen")
 	// connect to this socket
 	l, err := net.Listen("tcp", address)
 	if err != nil {
-		log.Println("Failed to listen at", err)
+		log.Error().Err(err).Msg("Failed to listen at")
 		return nil, err
 	}
 
-	log.Println("Accept connections now", l)
+	log.Info().Interface("listener", l).Msg("Accept connections now")
 
 	server := Server{&l, address, nil}
 	go server.acceptConnections(l)
@@ -45,17 +46,17 @@ func NewServer(address string) (*Server, error) {
 
 func (server Server) acceptConnections(l net.Listener) error {
 	for {
-		log.Println("Waiting for new connections ", l)
+		log.Info().Interface("listener", l).Msg("Waiting for new connections")
 		conn, err := l.Accept()
 		if err != nil {
-			log.Println("Failed to accept connections", err)
+			log.Error().Err(err).Msg("Failed to accept connections")
 			return err
 		}
 
 		streamID := generateStreamID()
 		stream := ServerLogStream{&LogStream{conn, streamID, "", ""}, &server, nil}
 		s := append(server.streams, stream)
-		log.Println("[DBG] Accepted connection, adding stream ", stream)
+		log.Debug().Interface("stream", stream).Msg("Accepted connection, adding stream ")
 		server.streams = s
 		stream.writeMessage("# Welcome to Logster v" + Version)
 		stream.writeMessage("STREAMID " + stream.streamID)
@@ -80,10 +81,10 @@ func (server Server) findStream(streamID string) *ServerLogStream {
 func (stream ServerLogStream) handleCommands() {
 	cmdIdx := 0
 	for {
-		log.Println("[DBG] Await next command")
+		log.Info().Msg("Await next command")
 		line, err := stream.awaitMessage()
 		if err != nil {
-			log.Println("[ERROR] Failed to await message from stream", stream.streamID, ":", err)
+			log.Error().Err(err).Str("stream", stream.streamID).Msg("Failed to await message from stream")
 			break
 		}
 		if line == "" || line == "\n" {
@@ -92,10 +93,10 @@ func (stream ServerLogStream) handleCommands() {
 		cmds := strings.Split(strings.Replace(strings.TrimSpace(line), ",", " ", -1), " ")
 		cmd := cmds[0]
 		args := cmds[1:]
-		log.Println("[DBG] Process command ", cmdIdx, cmd)
+		log.Debug().Int("idx", cmdIdx).Str("cmd", cmd).Msg("Process command ")
 		switch cmd {
 		case "INIT":
-			log.Println("[DBG] Init logstream", line)
+			log.Debug().Str("line", line).Msg("Init logstream")
 			// Format: INIT STREAM host:/path/file srv:service more:meta
 			if len(args) < 2 {
 				stream.writeMessage("ERR 500 Missing arguments for " + cmd)
@@ -103,28 +104,28 @@ func (stream ServerLogStream) handleCommands() {
 			}
 			params := strings.Split(args[1], ":")
 			host, file := params[0], params[1]
-			log.Println("[INFO] Using hostname", host, "filename", file)
+			log.Info().Str("host", host).Str("file", file).Msg("Using hostname/file")
 			// Based on hostname/filename a output configuration must be detected
 			err := stream.initStreamSink(host, file)
 			if err != nil {
-				log.Println("[ERROR] Failed to init stream for host", host, "file", file, ":", err)
+				log.Error().Err(err).Str("stream", stream.streamID).Str("host", host).Str("file", file).Msg("Failed to init stream")
 				continue
 			}
 			if stream.localFile == nil {
-				log.Println("[ERROR] No file to stream to, aborting. host", host, "file", file, ":")
+				log.Error().Err(err).Str("stream", stream.streamID).Str("host", host).Str("file", file).Msg("Failed to init stream, no file to stream to")
 				continue
 			}
 			stream.writeMessage(fmt.Sprintf("OK %s %d", stream.streamID, cmdIdx))
 			if err != nil {
-				log.Println("[ERROR] During writeMessage to client, aborting")
+				log.Info().Msg("[ERROR] During writeMessage to client, aborting")
 				continue
 			}
-			log.Println("[INFO] Streaming data to file", stream.localFile, "for stream", stream.streamID)
+			log.Info().Str("stream", stream.streamID).Str("localfile", stream.localFile.Name()).Msg("Streaming data to file")
 			n, err := stream.copyStream()
-			log.Println("Stream", stream.streamID, "ending after", n, "bytes:", err)
+			log.Info().Err(err).Str("stream", stream.streamID).Int64("count", n).Msg("Stream completed")
 			if err != nil {
 				if err == io.EOF {
-					log.Println("EOF reached for stream", err)
+					log.Debug().Err(err).Str("stream", stream.streamID).Msg("EOF reached for stream")
 				} else {
 					stream.writeMessage("ERR 500 Failed after " + string(n) + " bytes from stream" + stream.streamID)
 				}
@@ -132,7 +133,7 @@ func (stream ServerLogStream) handleCommands() {
 				stream.writeMessage(fmt.Sprintf("OK %d %d", cmdIdx, n))
 			}
 		case "CLOSE":
-			log.Println("Close logstream", stream.streamID)
+			log.Info().Str("stream", stream.streamID).Msg("Close logstream")
 			stream.writeMessage(fmt.Sprintf("OK %d", cmdIdx))
 			stream.close()
 			return
@@ -162,7 +163,7 @@ func (stream *ServerLogStream) initStreamSink(hostname string, file string) erro
 	// f, err := os.OpenFile(localfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
 	f, err := os.Create(localfile)
 	if err != nil {
-		log.Println("Failed to open", localfile, "for writing:", err)
+		log.Error().Err(err).Str("localfile", localfile).Msg("Failed to open file for writing")
 	}
 	stream.localFile = f
 	return err
@@ -177,26 +178,27 @@ func (stream ServerLogStream) copyStream() (int64, error) {
 	for {
 		n, err := io.CopyN(file, conn, bufsize)
 		total = total + n
-		log.Println("Read", total, "bytes total for stream", stream.streamID, "to local file", file.Name())
+		log.Debug().Str("stream", stream.streamID).Str("file", file.Name()).Int64("total", total).Msg("Read bytes for stream to local file")
 		if err != nil {
 			if err == io.EOF {
 				retry = retry + 1
 				if retry < 2 {
-					log.Println("Retry", retry, "reading/writing after 1 second")
+					log.Info().Str("stream", stream.streamID).Int("retry", retry).Msg("Retry reading/writing after 1 second")
 					time.Sleep(1 * time.Second)
 					continue
 				}
-				log.Println("EOF reached")
+				log.Info().Msg("EOF reached")
 				break
 			} else {
-				log.Println("[ERROR] Error during read of buffer with", bufsize, "bytes (received", n, " bytes):", err)
+				log.Error().Err(err).Str("stream", stream.streamID).Int64("bufsize", bufsize).Int64("count", n).Msg("Failed to read buffer")
 				return total, err
 			}
 		}
 		retry = 0
 	}
 
-	log.Println("[DBG] Wrote", total, "bytes to", file.Name())
+	log.Info().Str("stream", stream.streamID).Str("file", file.Name()).Int64("total", total).Msg("Stream completed")
+
 	file.Sync()
 	return total, nil
 }
