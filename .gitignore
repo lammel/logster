@@ -16,3 +16,5 @@
 .markdownlint.yaml
 logsterc.toml
 logsterc.conf
+logsterd.toml
+logsterd.conf

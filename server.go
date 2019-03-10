@@ -14,9 +14,11 @@ import (
 
 // Server handles a logster client connection
 type Server struct {
-	listener *net.Listener
-	Address  string
-	streams  []ServerLogStream
+	listener        *net.Listener
+	Address         string
+	OutputDirectory string
+	streamHandler   func(hostname string, file string) string
+	streams         []ServerLogStream
 }
 
 // ServerLogStream handles a log stream
@@ -27,7 +29,7 @@ type ServerLogStream struct {
 }
 
 // NewServer initiates a new client connection
-func NewServer(address string) (*Server, error) {
+func NewServer(address string, directory string, handler func(string)) (*Server, error) {
 
 	log.Info().Str("listen", address).Msg("Attempt to listen")
 	// connect to this socket
@@ -39,7 +41,7 @@ func NewServer(address string) (*Server, error) {
 
 	log.Info().Interface("listener", l).Msg("Accept connections now")
 
-	server := Server{&l, address, nil}
+	server := Server{&l, address, directory, nil, nil}
 	go server.acceptConnections(l)
 	return &server, err
 }
@@ -159,7 +161,15 @@ func generateStreamID() string {
 func (stream *ServerLogStream) initStreamSink(hostname string, file string) error {
 	// Map to logfile now and open it for writing
 	// TODO: use correct filename from mapping or deny init
-	localfile := fmt.Sprintf("%s/%s_%s.out.log", "/tmp", hostname, strings.Replace(file, "/", "_", -1))
+	var localfile string
+	if stream.server.streamHandler != nil {
+		localfile = stream.server.streamHandler(hostname, file)
+		log.Info().Msgf("Using configured output file for %s:%s from config: ", hostname, file, localfile)
+	} else {
+		directory := stream.server.OutputDirectory
+		localfile = fmt.Sprintf("%s/%s_%s.out.log", directory, hostname, strings.Replace(file, "/", "_", -1))
+		log.Info().Msgf("Initialized stream sink for %s:%s using default mapping: ", hostname, file, localfile)
+	}
 	// f, err := os.OpenFile(localfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
 	f, err := os.Create(localfile)
 	if err != nil {

@@ -18,19 +18,6 @@ import (
 
 const version = "0.1"
 
-// Configuration is used to define the TOML config structure
-type Configuration struct {
-	Debug   bool
-	Server  string
-	Streams []Stream `toml:"stream"`
-}
-
-// Stream holds the configured streams
-type Stream struct {
-	Name string // `mapstructure:"name"`
-	Path string //`mapstructure:"path"`
-}
-
 func main() {
 
 	// Initialize logging using zerolog
@@ -43,7 +30,7 @@ func main() {
 	configFile := flag.String("conf", "logsterc.conf", "name of the configuration file to load")
 	flag.Parse()
 
-	var conf Configuration
+	var conf logster.ClientConfiguration
 	if _, err := toml.DecodeFile(*configFile, &conf); err != nil {
 		panic(fmt.Errorf("Fatal error config file: %s", err))
 	}
@@ -77,33 +64,7 @@ func main() {
 	go handleWatch(eventCh, client)
 	go handleHeartbeatTimer()
 
-	/*
-		log.Info().Msg("Setup streams now")
-		confStreams := viper.Sub("stream")
-		if confStreams == nil {
-			log.Error().Msg("Failed to parse config streams")
-			quit(1)
-		}
-
-		for key := range confStreams.AllSettings() {
-			log.Debug().Msgf("Process stream %s", key)
-
-			name := confStreams.GetString(key + ".name")
-			path := confStreams.GetString(key + ".path")
-			log.Debug().Msgf("Init stream %s: %s", name, path)
-			// Should add watch now
-			s, err := client.NewLogStream(name, path)
-			if err != nil {
-				log.Error().Msgf("Failed to start stream %s:%s", name, path)
-			}
-			log.Info().Msgf("Starting stream %s:%s", name, path)
-			wg.Add(1)
-			go s.StreamFileHandler(path, 0)
-			log.Info().Msgf("Stream %s initialized", name)
-		}
-	*/
-
-	for idx, stream := range conf.Streams {
+	for idx, stream := range conf.FileStreams {
 		log.Debug().Msgf("Process stream #%d: %s", idx, stream)
 
 		name := stream.Name

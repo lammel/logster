@@ -1,10 +1,13 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"logster"
 	"os"
 	"sync"
 
+	"github.com/BurntSushi/toml"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -18,7 +21,15 @@ func main() {
 	}
 	log.Info().Msg("Starting up")
 
-	server, err := logster.NewServer("127.0.0.1:8000")
+	configFile := flag.String("conf", "logsterd.conf", "name of the configuration file to load")
+	flag.Parse()
+
+	var conf logster.ServerConfiguration
+	if _, err := toml.DecodeFile(*configFile, &conf); err != nil {
+		panic(fmt.Errorf("Fatal error config file: %s", err))
+	}
+
+	server, err := logster.NewServer(conf.Listen, conf.OutputDirectory, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to connect")
 	}
