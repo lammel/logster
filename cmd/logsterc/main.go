@@ -24,6 +24,7 @@ func main() {
 	zerolog.TimeFieldFormat = "2006-01-02 15:04:05.000"
 	if true {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: zerolog.TimeFieldFormat})
+		log.Level(zerolog.InfoLevel)
 	}
 	log.Info().Msg("Starting logster v" + version)
 
@@ -77,7 +78,7 @@ func main() {
 		}
 		log.Info().Msgf("Starting stream %s:%s", name, path)
 		wg.Add(1)
-		go s.StreamFileHandler(path, 0)
+		go s.StreamFile(path, 0)
 		log.Info().Msgf("Stream %s initialized", name)
 	}
 

@@ -35,21 +35,8 @@ type LogStreamInterface interface {
 	awaitResponse()
 }
 
-// Reconnect the underlying connection
-func (stream *LogStream) Reconnect(server string) error {
-	log.Debug().Str("stream", stream.streamID).Msg("Reconnecting stream")
-	stream.conn.Close()
-	time.Sleep(2 * time.Second)
-	conn, err := net.Dial("tcp", server)
-	if err != nil {
-		log.Error().Err(err).Msg("Unable to reconnect")
-		return err
-	}
-	stream.conn = conn
-	return nil
-}
-
-func (stream ServerLogStream) close() {
+// Close logstream connection
+func (stream LogStream) Close() {
 	log.Debug().Str("stream", stream.streamID).Msg("Closing connection")
 	err := stream.conn.Close()
 	if err != nil {

@@ -137,7 +137,7 @@ func (stream ServerLogStream) handleCommands() {
 		case "CLOSE":
 			log.Info().Str("stream", stream.streamID).Msg("Close logstream")
 			stream.writeMessage(fmt.Sprintf("OK %d", cmdIdx))
-			stream.close()
+			stream.Close()
 			return
 		default:
 			stream.writeMessage("ERR 500 Unknown command" + cmd)
@@ -164,14 +164,13 @@ func (stream *ServerLogStream) initStreamSink(hostname string, file string) erro
 	var localfile string
 	if stream.server.streamHandler != nil {
 		localfile = stream.server.streamHandler(hostname, file)
-		log.Info().Msgf("Using configured output file for %s:%s from config: ", hostname, file, localfile)
+		log.Info().Msgf("Using configured output file for %s:%s from config: %s", hostname, file, localfile)
 	} else {
 		directory := stream.server.OutputDirectory
 		localfile = fmt.Sprintf("%s/%s_%s.out.log", directory, hostname, strings.Replace(file, "/", "_", -1))
-		log.Info().Msgf("Initialized stream sink for %s:%s using default mapping: ", hostname, file, localfile)
+		log.Info().Msgf("Initialized stream sink for %s:%s using default mapping: %s", hostname, file, localfile)
 	}
-	// f, err := os.OpenFile(localfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
-	f, err := os.Create(localfile)
+	f, err := os.OpenFile(localfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
 	if err != nil {
 		log.Error().Err(err).Str("localfile", localfile).Msg("Failed to open file for writing")
 	}
@@ -182,15 +181,16 @@ func (stream *ServerLogStream) initStreamSink(hostname string, file string) erro
 func (stream ServerLogStream) copyStream() (int64, error) {
 	conn := stream.conn
 	file := stream.localFile
-	bufsize := int64(512)
+	bufsize := int64(defaultBuffersize)
 	total := int64(0)
 	retry := 0
 	for {
 		n, err := io.CopyN(file, conn, bufsize)
 		total = total + n
-		log.Debug().Str("stream", stream.streamID).Str("file", file.Name()).Int64("total", total).Msg("Read bytes for stream to local file")
+		log.Debug().Str("stream", stream.streamID).Str("file", file.Name()).Int64("read", n).Int64("total", total).Msg("Read from stream to local file")
 		if err != nil {
 			if err == io.EOF {
+				file.Sync()
 				retry = retry + 1
 				if retry < 2 {
 					log.Info().Str("stream", stream.streamID).Int("retry", retry).Msg("Retry reading/writing after 1 second")
