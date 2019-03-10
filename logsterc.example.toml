@@ -1,0 +1,13 @@
+# debug = true
+
+[server]
+address=127.0.0.1:8091
+
+[[streams]]
+name = messages
+path = /var/log/messages
+
+[[streams]]
+name = test
+path = /tmp/log/test.log
+
