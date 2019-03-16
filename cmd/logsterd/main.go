@@ -35,33 +35,20 @@ func main() {
 	}
 	log.Info().Str("server", server.Address).Msg("Started server")
 
-	/*
-		// Echo instance
-		e := echo.New()
-
-		// Middleware
-		e.Use(middleware.Logger())
-		e.Use(middleware.Recover())
-
-		// Routes
-		e.GET("/", hello)
-
-		// Start server
-		e.Logger.Fatal(e.Start(":8901"))
-	*/
-
 	var wg sync.WaitGroup
 	wg.Add(1)
+	if conf.Prometheus.Enabled {
+		listen := conf.Prometheus.Listen
+		if listen == "" {
+			listen = "localhost:9099"
+		}
+		wg.Add(1)
+		go logster.ListenPrometheus(listen)
+	}
+
 	wg.Wait()
 	quit(0)
 }
-
-/*
-// Handler
-func hello(c echo.Context) error {
-	return c.String(http.StatusOK, "Hello, World!")
-}
-*/
 
 func quit(code int) {
 	log.Info().Msg("Done.")

@@ -14,10 +14,17 @@ type stream struct {
 	Tag  string
 }
 
+type prometheusConfig struct {
+	Listen  string
+	Path    string
+	Enabled bool
+}
+
 // ServerConfiguration is used to define the TOML config structure
 type ServerConfiguration struct {
 	Debug           bool
 	Listen          string
+	Prometheus      prometheusConfig
 	OutputDirectory string                `toml:"directory"`
 	OutputStreams   map[string]fileOutput `toml:"output"`
 }

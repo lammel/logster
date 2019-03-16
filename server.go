@@ -5,10 +5,14 @@ import (
 	"io"
 	"math/rand"
 	"net"
+	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
+	"github.com/prometheus/client_golang/prometheus"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"github.com/rs/zerolog/log"
 )
 
@@ -26,6 +30,69 @@ type ServerLogStream struct {
 	*LogStream
 	server    *Server
 	localFile *os.File
+}
+
+// Prometheus counters
+var (
+	metricClientsActive = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "logsterd_active_clients",
+			Help: "Number of connected and active clients",
+		},
+		[]string{},
+	)
+	metricClientsConnected = prometheus.NewGaugeVec(
+		prometheus.GaugeOpts{
+			Name: "logsterd_connected_clients",
+			Help: "Number of connected (active and idle) clients",
+		},
+		[]string{},
+	)
+	metricClientConnectsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "logsterd_client_connects_total",
+			Help: "Number of connected (active and idle) clients",
+		},
+		[]string{},
+	)
+	metricClientDisconnectsTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "logsterd_client_disconnects_total",
+			Help: "Number of connected (active and idle) clients",
+		},
+		[]string{},
+	)
+	metricBytesRecvTotal = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "logster_bytes_received_total",
+			Help: "Number of connected (active and idle) clients",
+		},
+		[]string{},
+	)
+	metricBytesRecv = prometheus.NewCounterVec(
+		prometheus.CounterOpts{
+			Name: "logster_bytes_received",
+			Help: "Number of bytes received for named connection",
+		},
+		[]string{"name"},
+	)
+)
+
+// ListenPrometheus will provide application metrics via HTTP under e/metrics
+func ListenPrometheus(listen string) {
+	// Register the summary and the histogram with Prometheus's default registry.
+	prometheus.MustRegister(metricClientsActive)
+	prometheus.MustRegister(metricClientsConnected)
+	prometheus.MustRegister(metricBytesRecvTotal)
+
+	log.Debug().Str("listen", listen).Msg("Starting prometheus metrics provider")
+	http.Handle("/metrics", promhttp.Handler())
+	err := http.ListenAndServe(listen, nil)
+	if err != nil {
+		log.Fatal().Err(err).Msg("Failed to listen for prometheus HTTP")
+	} else {
+		log.Info().Str("listen", listen).Msg("Listen for prometheus metrics on ")
+	}
 }
 
 // NewServer initiates a new client connection
@@ -54,6 +121,9 @@ func (server Server) acceptConnections(l net.Listener) error {
 			log.Error().Err(err).Msg("Failed to accept connections")
 			return err
 		}
+
+		metricClientsConnected.WithLabelValues().Inc()
+		metricClientConnectsTotal.WithLabelValues().Inc()
 
 		streamID := generateStreamID()
 		stream := ServerLogStream{&LogStream{conn, streamID, "", ""}, &server, nil}
@@ -123,6 +193,7 @@ func (stream ServerLogStream) handleCommands() {
 				continue
 			}
 			log.Info().Str("stream", stream.streamID).Str("localfile", stream.localFile.Name()).Msg("Streaming data to file")
+			metricClientsActive.WithLabelValues().Inc()
 			n, err := stream.copyStream()
 			log.Info().Err(err).Str("stream", stream.streamID).Int64("count", n).Msg("Stream completed")
 			if err != nil {
@@ -157,6 +228,16 @@ func generateStreamID() string {
 	return b.String()
 }
 
+func ensureDir(fileName string) {
+	dirName := filepath.Dir(fileName)
+	if _, serr := os.Stat(dirName); serr != nil {
+		merr := os.MkdirAll(dirName, os.ModePerm)
+		if merr != nil {
+			panic(merr)
+		}
+	}
+}
+
 //initStreamSink initiates a new log stream
 func (stream *ServerLogStream) initStreamSink(hostname string, file string) error {
 	// Map to logfile now and open it for writing
@@ -167,9 +248,10 @@ func (stream *ServerLogStream) initStreamSink(hostname string, file string) erro
 		log.Info().Msgf("Using configured output file for %s:%s from config: %s", hostname, file, localfile)
 	} else {
 		directory := stream.server.OutputDirectory
-		localfile = fmt.Sprintf("%s/%s_%s.out.log", directory, hostname, strings.Replace(file, "/", "_", -1))
+		localfile = fmt.Sprintf("%s/%s/%s.out.log", directory, hostname, strings.Replace(file, "/", "_", -1))
 		log.Info().Msgf("Initialized stream sink for %s:%s using default mapping: %s", hostname, file, localfile)
 	}
+	ensureDir(localfile)
 	f, err := os.OpenFile(localfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
 	if err != nil {
 		log.Error().Err(err).Str("localfile", localfile).Msg("Failed to open file for writing")
@@ -187,6 +269,8 @@ func (stream ServerLogStream) copyStream() (int64, error) {
 	for {
 		n, err := io.CopyN(file, conn, bufsize)
 		total = total + n
+		metricBytesRecvTotal.WithLabelValues().Add(float64(n))
+		metricBytesRecv.WithLabelValues(stream.filename).Add(float64(n))
 		log.Debug().Str("stream", stream.streamID).Str("file", file.Name()).Int64("read", n).Int64("total", total).Msg("Read from stream to local file")
 		if err != nil {
 			if err == io.EOF {

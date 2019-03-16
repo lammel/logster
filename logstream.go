@@ -39,6 +39,10 @@ type LogStreamInterface interface {
 func (stream LogStream) Close() {
 	log.Debug().Str("stream", stream.streamID).Msg("Closing connection")
 	err := stream.conn.Close()
+
+	metricClientsActive.WithLabelValues().Dec()
+	metricClientDisconnectsTotal.WithLabelValues().Inc()
+
 	if err != nil {
 		log.Error().Err(err).Str("stream", stream.streamID).Msg("Failed to close stream")
 	} else {
@@ -49,6 +53,10 @@ func (stream LogStream) Close() {
 // writeMessage will write a single command to the server
 func (stream LogStream) writeMessage(msg string) error {
 	conn := stream.conn
+	if conn == nil {
+		log.Debug().Msg("No valid connection, returning.")
+		return io.ErrUnexpectedEOF
+	}
 	writer := bufio.NewWriter(conn)
 	// send to socket
 	const timeoutDuration = 5 * time.Second
@@ -63,6 +71,10 @@ func (stream LogStream) writeMessage(msg string) error {
 // awaitMessage will write a single command to the server
 func (stream LogStream) awaitMessage() (string, error) {
 	conn := stream.conn
+	if conn == nil {
+		log.Debug().Msg("No valid connection, returning.")
+		return "", io.ErrUnexpectedEOF
+	}
 	reader := bufio.NewReader(conn)
 	log.Debug().Str("stream", stream.streamID).Msg("Reading and awaiting message on stream")
 	const timeoutDuration = 5 * time.Second
