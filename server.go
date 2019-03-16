@@ -248,7 +248,7 @@ func (stream *ServerLogStream) initStreamSink(hostname string, file string) erro
 		log.Info().Msgf("Using configured output file for %s:%s from config: %s", hostname, file, localfile)
 	} else {
 		directory := stream.server.OutputDirectory
-		localfile = fmt.Sprintf("%s/%s/%s.out.log", directory, hostname, strings.Replace(file, "/", "_", -1))
+		localfile = fmt.Sprintf("%s/%s/%s.out.log", directory, hostname, strings.Trim(strings.Replace(file, "/", "_", -1), "_/"))
 		log.Info().Msgf("Initialized stream sink for %s:%s using default mapping: %s", hostname, file, localfile)
 	}
 	ensureDir(localfile)
