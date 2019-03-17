@@ -15,7 +15,7 @@ const (
 	Version string = "0.1"
 
 	// Buffersize used for internal streaming to/from file
-	defaultBuffersize int = 4096
+	defaultBuffersize int = 32 * 1024
 )
 
 // LogStream handles a log stream
