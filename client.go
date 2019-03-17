@@ -175,15 +175,15 @@ func (stream *ClientLogStream) StreamFile(path string, lastPos int64) (int64, er
 	retry := 0
 	const maxDelay = 30
 
-	if stream.conn == nil {
-		log.Warn().Msg("No initial connection available, connecting...")
-		err := stream.Connect()
-		if err != nil {
-			log.Error().Err(err).Str("server", stream.server).Msg("Failed to connect initially")
-		}
-	}
 	for {
 		log.Info().Msg("Starting loop for stream file data")
+		if stream.conn == nil {
+			log.Warn().Msg("No valid connection available, connecting...")
+			err := stream.Reconnect()
+			if err != nil {
+				log.Error().Err(err).Str("server", stream.server).Msg("Failed to connect initially")
+			}
+		}
 		if file == nil {
 			file, err = os.Open(path)
 			defer closeFile(file)
