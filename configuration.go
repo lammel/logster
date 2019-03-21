@@ -1,4 +1,4 @@
-package logster
+package loghamster
 
 // ClientConfiguration is used to define the TOML config structure
 type ClientConfiguration struct {

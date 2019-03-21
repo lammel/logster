@@ -10,14 +10,14 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
-/logsterc
-/logsterd
+/loghamsterc
+/loghamsterd
 .vscode/launch.json
 .markdownlint.yaml
-logsterc.toml
-logsterc.conf
-logsterd.toml
-logsterd.conf
+loghamsterc.toml
+loghamsterc.conf
+loghamsterd.toml
+loghamsterd.conf
 
 # Ignore any logfiles
 /*.log

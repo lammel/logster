@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"logster"
+	"loghamster"
 	"os"
 	"os/signal"
 	"sync"
@@ -26,18 +26,18 @@ func main() {
 		log.Logger = log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: zerolog.TimeFieldFormat})
 		log.Level(zerolog.InfoLevel)
 	}
-	log.Info().Msg("Starting logster v" + version)
+	log.Info().Msg("Starting loghamster v" + version)
 
-	configFile := flag.String("conf", "logsterc.conf", "name of the configuration file to load")
+	configFile := flag.String("conf", "loghamsterc.conf", "name of the configuration file to load")
 	flag.Parse()
 
-	var conf logster.ClientConfiguration
+	var conf loghamster.ClientConfiguration
 	if _, err := toml.DecodeFile(*configFile, &conf); err != nil {
 		panic(fmt.Errorf("Fatal error config file: %s", err))
 	}
 
-	client := logster.NewClient(conf.Server)
-	log.Info().Msgf("Logster client to server %s, creating streams", conf.Server)
+	client := loghamster.NewClient(conf.Server)
+	log.Info().Msgf("LogHamster client to server %s, creating streams", conf.Server)
 
 	// Setup syncronization of goroutines
 	var wg sync.WaitGroup
@@ -111,7 +111,7 @@ func handleHeartbeatTimer() {
 	}
 }
 
-func handleWatch(ch <-chan notify.EventInfo, client *logster.Client) {
+func handleWatch(ch <-chan notify.EventInfo, client *loghamster.Client) {
 	for ei := range ch {
 		// Block until an event is received.
 		switch ei.Event() {

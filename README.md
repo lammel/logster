@@ -1,29 +1,29 @@
-Logster - A simple log shipper for multiple files
-=================================================
+Log Hamster - A log file streamer for multiple files
+====================================================
 
-**STATUS**: Development started, no functional release yet
+**STATUS**: Under development, no functional release yet
 
 Abstract
 --------
 
-Logster is a simple tool to forward logs to another server running a compatible server.
+Log Hamster is a simple tool to forward logs to another server running a compatible server.
 
-Logster is composed of a client and a server daemon using a simple command
+Log hamster is composed of a client and a server daemon using a simple command
 protocol to optimize log transfer and guarantee delivery.
 
-Logster client and server is written in [Go](http://golang.org) and
+Log hamster client and server is written in [Go](http://golang.org) and
 is tested for Linux only for now.
 
-Client logsterc
+Client loghamsterc
 ---------------
 
-The logster client allows watching multiple files for changes and sending their
+The log hamster client allows watching multiple files for changes and sending their
 contents to a preconfigured server.
 
 ### Configuration
 
 Configuration is handled in a TOML file.
-The logster client may either be started with a configuration file or
+The loghamster client may either be started with a configuration file or
 get a list of files to stream on the commandline.
 
 The configuration file will allow more flexible configuration for the
@@ -32,21 +32,21 @@ files to stream.
     [server]
     hostname=log.mgmt.neotel.at
     port=8901
-    compression=none     # snappy, gzip, lz4
+    compression=none     # gzip, lz4
 
-    [stream:messages]
+    [[stream]
     path=/var/log/messages
     method=watch
     onrotate=follow
 
-    [stream:backup]
+    [[stream]]
     directory=/var/log/sipproxyd/backup
     method=watch
     filepattern='*.log.*.gz'
 
 ### Log streaming
 
-Logfiles can be streamed to the server. This requires logster to
+Logfiles can be streamed to the server. This requires loghamster to
 follow the current position in the files and send new content as
 soon as possible to the server.
 
@@ -54,10 +54,10 @@ soon as possible to the server.
 
 For file sending only existing files are copied to the server
 
-Server logsterd
----------------
+Server loghamsterd
+------------------
 
-The logster daemon (or logsterd) is a simple daemon accepting mulitple
+The loghamster daemon (or loghamsterd) is a simple daemon accepting mulitple
 incoming connections on a single port.
 
 The server will be configured to match incoming meta data like hostname,
@@ -66,15 +66,20 @@ filename or other meta data to an outgoing file.
 An incoming log streaming request will then be matched to an output
 logfile configuration.
 
-    [log.live2.coolapp]
-    path=/var/log/logster/live/coolapp.log
-    maxsize=10M
-    rotate=10
+    debug = true
+    listen = "127.0.0.1:8000"
+    directory = "/tmp/out"
 
-    [log.live2.niceapp]
-    path=/var/log/logster/live2/sipproxyd.log
-    maxsize=10M
-    rotate=10
+    [prometheus]
+    listen = ":8091"
+    enabled = true
+
+    [output.message]
+        path = "/var/log/messages"
+
+    [output.test]
+        path = "/tmp/log/test.log"
+
 
 Log Protocol
 ------------
@@ -96,7 +101,7 @@ overhead for this simple use case.
 
 ```text
 >>  TCP Connect
- << ### Welcome to Logster server v0.1
+ << ### Welcome to LogHamster server v0.1
  << STREAMID abcdef
 >>  INIT STREAM host:/path svc:servicename more:<meta>
  << 200 OK Ready to accept data
@@ -131,11 +136,11 @@ Handling
 
 A client controls all streams and can issue a streamFile.
 
-    client := logster.NewClient("log.example.com:8901")
+    client := loghamster.NewClient("log.example.com:8901")
     n, err := client.StreamFile("/var/log/app.log")
     n, err := client.StreamFile("/var/log/messages")
 
-The logster client will follow file changes automatically and 
+The loghamster client will follow file changes automatically and 
 reconnect to the server.
 
 Log sending mechanisms
@@ -169,5 +174,5 @@ Building
 
 To create static builds for the binaries use:
 
-    CGO_ENABLED=0 go build -ldflags '-s -w' -o logsterc cmd/logsterc/main.go
-    CGO_ENABLED=0 go build -ldflags '-s -w' -o logsterd cmd/logsterd/main.go
+    CGO_ENABLED=0 go build -ldflags '-s -w' -o loghamsterc cmd/loghamsterc/main.go
+    CGO_ENABLED=0 go build -ldflags '-s -w' -o loghamsterd cmd/loghamsterd/main.go

@@ -3,7 +3,7 @@ package main
 import (
 	"flag"
 	"fmt"
-	"logster"
+	"loghamster"
 	"os"
 	"sync"
 
@@ -21,15 +21,15 @@ func main() {
 	}
 	log.Info().Msg("Starting up")
 
-	configFile := flag.String("conf", "logsterd.conf", "name of the configuration file to load")
+	configFile := flag.String("conf", "loghamsterd.conf", "name of the configuration file to load")
 	flag.Parse()
 
-	var conf logster.ServerConfiguration
+	var conf loghamster.ServerConfiguration
 	if _, err := toml.DecodeFile(*configFile, &conf); err != nil {
 		panic(fmt.Errorf("Fatal error config file: %s", err))
 	}
 
-	server, err := logster.NewServer(conf.Listen, conf.OutputDirectory, nil)
+	server, err := loghamster.NewServer(conf.Listen, conf.OutputDirectory, nil)
 	if err != nil {
 		log.Error().Err(err).Msg("Failed to connect")
 	}
@@ -43,7 +43,7 @@ func main() {
 			listen = "localhost:9099"
 		}
 		wg.Add(1)
-		go logster.ListenPrometheus(listen)
+		go loghamster.ListenPrometheus(listen)
 	}
 
 	wg.Wait()

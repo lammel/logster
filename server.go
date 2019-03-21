@@ -1,4 +1,4 @@
-package logster
+package loghamster
 
 import (
 	"fmt"
@@ -16,7 +16,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Server handles a logster client connection
+// Server handles a loghamster client connection
 type Server struct {
 	listener        *net.Listener
 	Address         string
@@ -36,42 +36,42 @@ type ServerLogStream struct {
 var (
 	metricClientsActive = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "logsterd_active_clients",
+			Name: "loghamsterd_active_clients",
 			Help: "Number of connected and active clients",
 		},
 		[]string{},
 	)
 	metricClientsConnected = prometheus.NewGaugeVec(
 		prometheus.GaugeOpts{
-			Name: "logsterd_connected_clients",
+			Name: "loghamsterd_connected_clients",
 			Help: "Number of connected (active and idle) clients",
 		},
 		[]string{},
 	)
 	metricClientConnectsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "logsterd_client_connects_total",
+			Name: "loghamsterd_client_connects_total",
 			Help: "Number of connected (active and idle) clients",
 		},
 		[]string{},
 	)
 	metricClientDisconnectsTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "logsterd_client_disconnects_total",
+			Name: "loghamsterd_client_disconnects_total",
 			Help: "Number of connected (active and idle) clients",
 		},
 		[]string{},
 	)
 	metricBytesRecvTotal = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "logster_bytes_received_total",
+			Name: "loghamster_bytes_received_total",
 			Help: "Number of connected (active and idle) clients",
 		},
 		[]string{},
 	)
 	metricBytesRecv = prometheus.NewCounterVec(
 		prometheus.CounterOpts{
-			Name: "logster_bytes_received",
+			Name: "loghamster_bytes_received",
 			Help: "Number of bytes received for named connection",
 		},
 		[]string{"name"},
@@ -130,7 +130,7 @@ func (server Server) acceptConnections(l net.Listener) error {
 		s := append(server.streams, stream)
 		log.Debug().Interface("stream", stream).Msg("Accepted connection, adding stream ")
 		server.streams = s
-		stream.writeMessage("# Welcome to Logster v" + Version)
+		stream.writeMessage("# Welcome to LogHamster v" + Version)
 		stream.writeMessage("STREAMID " + stream.streamID)
 		go stream.handleCommands()
 	}

@@ -1,4 +1,4 @@
-package logster
+package loghamster
 
 import (
 	"bufio"

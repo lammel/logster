@@ -1,4 +1,4 @@
-module logster
+module loghamster
 
 go 1.12
 

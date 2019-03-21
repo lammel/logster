@@ -1,4 +1,4 @@
-package logster
+package loghamster
 
 import (
 	"fmt"
@@ -12,7 +12,7 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-// Client handles a logster client connection
+// Client handles a loghamster client connection
 type Client struct {
 	server  string
 	streams []*ClientLogStream
