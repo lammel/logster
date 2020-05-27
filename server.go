@@ -11,8 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/prometheus/client_golang/prometheus"
-	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/VictoriaMetrics/metrics"
 	"github.com/rs/zerolog/log"
 )
 
@@ -32,61 +31,26 @@ type ServerLogStream struct {
 	localFile *os.File
 }
 
-// Prometheus counters
+// Metric counters
 var (
-	metricClientsActive = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "loghamsterd_active_clients",
-			Help: "Number of connected and active clients",
-		},
-		[]string{},
-	)
-	metricClientsConnected = prometheus.NewGaugeVec(
-		prometheus.GaugeOpts{
-			Name: "loghamsterd_connected_clients",
-			Help: "Number of connected (active and idle) clients",
-		},
-		[]string{},
-	)
-	metricClientConnectsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "loghamsterd_client_connects_total",
-			Help: "Number of connected (active and idle) clients",
-		},
-		[]string{},
-	)
-	metricClientDisconnectsTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "loghamsterd_client_disconnects_total",
-			Help: "Number of connected (active and idle) clients",
-		},
-		[]string{},
-	)
-	metricBytesRecvTotal = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "loghamster_bytes_received_total",
-			Help: "Number of connected (active and idle) clients",
-		},
-		[]string{},
-	)
-	metricBytesRecv = prometheus.NewCounterVec(
-		prometheus.CounterOpts{
-			Name: "loghamster_bytes_received",
-			Help: "Number of bytes received for named connection",
-		},
-		[]string{"name"},
-	)
+	// Number of active clients sending data
+	metricClientsActive = metrics.NewCounter("loghamster_clients_active")
+	// Number of connected (active and idle) clients
+	metricClientsConnected = metrics.NewCounter("loghamster_clients_connected")
+	// Total number of connections since start
+	metricClientConnectsTotal = metrics.NewCounter("loghamster_connections_total")
+	// Total number of bytes received since start
+	metricBytesRecvTotal = metrics.NewCounter("loghamster_bytes_received_total")
 )
 
 // ListenPrometheus will provide application metrics via HTTP under e/metrics
 func ListenPrometheus(listen string) {
 	// Register the summary and the histogram with Prometheus's default registry.
-	prometheus.MustRegister(metricClientsActive)
-	prometheus.MustRegister(metricClientsConnected)
-	prometheus.MustRegister(metricBytesRecvTotal)
 
 	log.Debug().Str("listen", listen).Msg("Starting prometheus metrics provider")
-	http.Handle("/metrics", promhttp.Handler())
+	http.HandleFunc("/metrics", func(w http.ResponseWriter, req *http.Request) {
+		metrics.WritePrometheus(w, true)
+	})
 	err := http.ListenAndServe(listen, nil)
 	if err != nil {
 		log.Fatal().Err(err).Msg("Failed to listen for prometheus HTTP")
@@ -122,8 +86,8 @@ func (server Server) acceptConnections(l net.Listener) error {
 			return err
 		}
 
-		metricClientsConnected.WithLabelValues().Inc()
-		metricClientConnectsTotal.WithLabelValues().Inc()
+		metricClientsConnected.Inc()
+		metricClientConnectsTotal.Inc()
 
 		streamID := generateStreamID()
 		stream := ServerLogStream{&LogStream{conn, streamID, "", ""}, &server, nil}
@@ -193,7 +157,7 @@ func (stream ServerLogStream) handleCommands() {
 				continue
 			}
 			log.Info().Str("stream", stream.streamID).Str("localfile", stream.localFile.Name()).Msg("Streaming data to file")
-			metricClientsActive.WithLabelValues().Inc()
+			metricClientsActive.Inc()
 			n, err := stream.copyStream()
 			log.Info().Err(err).Str("stream", stream.streamID).Int64("count", n).Msg("Stream completed")
 			if err != nil {
@@ -269,8 +233,7 @@ func (stream ServerLogStream) copyStream() (int64, error) {
 	for {
 		n, err := io.CopyN(file, conn, bufsize)
 		total = total + n
-		metricBytesRecvTotal.WithLabelValues().Add(float64(n))
-		metricBytesRecv.WithLabelValues(stream.filename).Add(float64(n))
+		metricBytesRecvTotal.Add(int(n))
 		log.Debug().Str("stream", stream.streamID).Str("file", file.Name()).Int64("read", n).Int64("total", total).Msg("Read from stream to local file")
 		if err != nil {
 			if err == io.EOF {

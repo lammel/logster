@@ -40,8 +40,8 @@ func (stream LogStream) Close() {
 	log.Debug().Str("stream", stream.streamID).Msg("Closing connection")
 	err := stream.conn.Close()
 
-	metricClientsActive.WithLabelValues().Dec()
-	metricClientDisconnectsTotal.WithLabelValues().Inc()
+	metricClientsActive.Dec()
+	// metricClientDisconnectsTotal.Inc()
 
 	if err != nil {
 		log.Error().Err(err).Str("stream", stream.streamID).Msg("Failed to close stream")
