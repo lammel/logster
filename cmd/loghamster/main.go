@@ -21,7 +21,7 @@ func main() {
 	}
 	log.Info().Msg("Starting up")
 
-	configFile := flag.String("conf", "loghamsterd.conf", "name of the configuration file to load")
+	configFile := flag.String("conf", "loghamster.conf", "name of the configuration file to load")
 	flag.Parse()
 
 	var conf loghamster.ServerConfiguration

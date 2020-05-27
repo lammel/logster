@@ -6,7 +6,7 @@
     {
       "label": "Build",
       "type": "shell",
-      "command": "go build -v -o loghamsterc cmd/loghamsterc/main.go && go build -v -o loghamsterd cmd/loghamsterd/main.go  && ls -l loghamster[cd]",
+      "command": "go build -v -o loghamster cmd/loghamster/main.go && ls -l loghamster",
       "detail": "Create a dynamically linked build",
       "group": "build",
       "problemMatcher": []
@@ -14,7 +14,7 @@
     {
       "label": "Build static",
       "type": "shell",
-      "command": "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -ldflags '-s -w' -o loghamsterc cmd/loghamsterc/main.go && CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -ldflags '-s -w' -o loghamsterd cmd/loghamsterd/main.go && ls -l loghamster[cd]",
+      "command": "CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -v -ldflags '-s -w' -o loghamster cmd/loghamster/main.go && ls -l loghamster",
       "detail": "Create a static build for Linux AMD64",
       "group": {
         "kind": "build",

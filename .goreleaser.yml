@@ -6,28 +6,14 @@ before:
     - go mod tidy
 builds:
   - 
-    id: "loghamsterc"
-    binary: loghamsterc
-    main: ./cmd/loghamsterc/main.go
+    binary: loghamster
+    main: ./cmd/loghamster/main.go
     env:
       - CGO_ENABLED=0
     ldflags:
       - -s -w
     goos:
       - linux
-    goarch:
-      - amd64
-  -
-    id: "loghamsterd"
-    binary: loghamsterd
-    main: ./cmd/loghamsterd/main.go
-    env:
-      - CGO_ENABLED=0
-    ldflags:
-      - -s -w
-    goos:
-      - linux
-      # - darwin
     goarch:
       - amd64
 archives:
@@ -82,10 +68,10 @@ nfpms:
       "README.md": "/usr/share/doc/loghamster/README.md"
       "resources/rsyslog.d/loghamster.conf": "/usr/share/doc/loghamster/rsyslog.d/loghamster.conf"
       "resources/logrotate.d/loghamster.conf": "/usr/share/doc/loghamster/logrotate.d/loghamster"
-      "loghamsterc.conf.example": "/usr/share/doc/loghamster/loghamsterc.conf.example"
-      "loghamsterd.conf.example": "/usr/share/doc/loghamster/loghamsterd.conf.example"
+      "loghamster.conf.server.example": "/usr/share/doc/loghamster/loghamster.conf.server.example"
+      "loghamster.conf.client.example": "/usr/share/doc/loghamster/loghamster.conf.client.example"
 
     # Config files to add to your package. They are about the same as
     # the files keyword, except package managers treat them differently
     config_files:
-      "loghamsterc.conf.example": "/etc/loghamster/loghamster.conf"
+      "loghamster.conf.server.example": "/etc/loghamster/loghamster.conf"
