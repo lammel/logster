@@ -1,0 +1,91 @@
+# This is an example goreleaser.yaml file with some sane defaults.
+# Make sure to check the documentation at http://goreleaser.com
+before:
+  hooks:
+    - go mod download
+    - go mod tidy
+builds:
+  - 
+    id: "loghamsterc"
+    binary: loghamsterc
+    main: ./cmd/loghamsterc/main.go
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+    goarch:
+      - amd64
+  -
+    id: "loghamsterd"
+    binary: loghamsterd
+    main: ./cmd/loghamsterd/main.go
+    env:
+      - CGO_ENABLED=0
+    ldflags:
+      - -s -w
+    goos:
+      - linux
+      # - darwin
+    goarch:
+      - amd64
+archives:
+  - replacements:
+      # linux: Linux
+      # windows: Windows
+      # amd64: x86_64
+    #files:
+    #  - README.md
+    #  - loghamster.conf.example
+checksum:
+  name_template: "checksums.txt"
+snapshot:
+  name_template: "{{ .Tag }}-snapshot"
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+release:
+  disable: true
+nfpms:
+  - # ID of the nfpm config, must be unique.
+    # Defaults to "default".
+
+    # You can change the name of the package.
+    # Default: `{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}{{ if .Arm }}v{{ .Arm }}{{ end }}`
+    # name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+    vendor: QuikIT
+    homepage: https://github.com/neotel-at/loghamster
+    maintainer: Roland Lammel <rl@quikit.at>
+    description: A log transporter with animal precission
+    license: GNU Lesser General Public License v3.0
+
+    formats:
+      - deb
+    #  - rpm
+
+    scripts:
+      # preinstall: "resources/scripts/preinstall.sh"
+      postinstall: "resources/scripts/postinstall.sh"
+      # preremove: "resources/scripts/preremove.sh"
+      # postremove: "resources/scripts/postremove.sh"
+
+    bindir: /usr/local/bin
+
+    files:
+      "resources/loghamster.service": "/usr/lib/systemd/system/loghamster.service"
+      "resources/loghamster.initd": "/etc/init.d/loghamster"
+      "README.md": "/usr/share/doc/loghamster/README.md"
+      "resources/rsyslog.d/loghamster.conf": "/usr/share/doc/loghamster/rsyslog.d/loghamster.conf"
+      "resources/logrotate.d/loghamster.conf": "/usr/share/doc/loghamster/logrotate.d/loghamster"
+      "loghamsterc.conf.example": "/usr/share/doc/loghamster/loghamsterc.conf.example"
+      "loghamsterd.conf.example": "/usr/share/doc/loghamster/loghamsterd.conf.example"
+
+    # Config files to add to your package. They are about the same as
+    # the files keyword, except package managers treat them differently
+    config_files:
+      "loghamsterc.conf.example": "/etc/loghamster/loghamster.conf"

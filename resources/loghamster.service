@@ -1,0 +1,14 @@
+[Unit]
+Description=Loghamster is a log transport daemon
+Documentation=https://github.com/neotel-at/loghamster
+After=network-online.target
+
+[Service]
+User=loghamster
+# Restart on failure, wait 15s between restarts
+Restart=on-failure
+RestartSec=15
+ExecStart=/usr/local/bin/loghamster --config=/etc/loghamster/loghamster.conf
+
+[Install]
+WantedBy=multi-user.target
