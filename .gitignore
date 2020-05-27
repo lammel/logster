@@ -10,14 +10,18 @@
 
 # Output of the go coverage tool, specifically when used with LiteIDE
 *.out
+
+# Ignore build binaries and packages
+/loghamster
 /loghamsterc
 /loghamsterd
+/dist
+
+# Ignore build environment files
 .vscode/launch.json
 .markdownlint.yaml
-loghamsterc.toml
-loghamsterc.conf
-loghamsterd.toml
-loghamsterd.conf
 
-# Ignore any logfiles
+# Ignore log and config files
 /*.log
+/*.conf
+/*.toml
