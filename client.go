@@ -131,7 +131,7 @@ func (client *Client) HandleFileDelete(path string) error {
 	if stream != nil {
 		stream.Close()
 	} else {
-		log.Debug().Str("path", stream.filename).Msg("No stream found")
+		log.Debug().Str("path", path).Msg("No stream found for path")
 	}
 	return nil
 }
