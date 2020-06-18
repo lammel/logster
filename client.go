@@ -46,7 +46,7 @@ func (client *Client) NewLogStream(hostname string, file string) (*ClientLogStre
 
 // CloseLogStream closes a log stream
 func (client *Client) CloseLogStream(stream *ClientLogStream) {
-	stream.conn.Close()
+	stream.Close()
 	client.removeStream(stream)
 }
 
@@ -96,8 +96,12 @@ func (client *Client) FindStreamByPath(path string) *ClientLogStream {
 func (client *Client) HandleFileChange(path string) error {
 	stream := client.FindStreamByPath(path)
 	if stream != nil {
-		if stream.InputFile != nil {
-			stream.sendData()
+		if stream.InputFile == nil {
+			stream.OpenInputFile(0)
+		}
+		if _, err := stream.sendData(); err != nil {
+			log.Error().Err(err).Str("stream", stream.streamID).Str("path", stream.filename).Msg("Failed to send data to stream")
+			client.CloseLogStream(stream)
 		}
 	} else {
 		if client.Files.FindInputByPath(path) != nil {
@@ -112,9 +116,7 @@ func (client *Client) HandleFileCreate(path string) error {
 	stream := client.FindStreamByPath(path)
 	if stream != nil {
 		stream.OpenInputFile(0)
-		if stream.InputFile != nil {
-			stream.sendData()
-		}
+		stream.sendData()
 	} else {
 		if client.Files.FindInputByPath(path) != nil {
 			client.NewLogStream(client.server, path)
@@ -276,6 +278,10 @@ func (stream *ClientLogStream) sendData() (int64, error) {
 		log.Error().Msg("Input file is nil, return ErrClosedPipe")
 		return 0, io.ErrClosedPipe
 	}
+	if stream.conn == nil {
+		log.Error().Msg("Connection is nil, return ErrClosedPipe")
+		return 0, io.ErrClosedPipe
+	}
 	total := int64(0)
 	bufsize := int64(defaultBuffersize)
 	// stream.InputFile.Seek(stream.LastPos, 0)
@@ -283,15 +289,14 @@ func (stream *ClientLogStream) sendData() (int64, error) {
 		log.Trace().Str("path", stream.filename).Int64("pos", stream.LastPos).Msg("Sending data from pos")
 		n, err := io.CopyN(stream.conn, stream.InputFile, bufsize)
 		if n > 0 && (err == nil || err == io.EOF) {
-			log.Info().Str("stream", stream.streamID).Str("path", stream.filename).Int64("count", n).Int64("total", total).Msg("Sent data to stream")
+			log.Trace().Int64("n", n).Msg("Sent to stream")
 			stream.LastPos = stream.LastPos + n
 			stream.LastRead = time.Now()
 			total = total + n
 		}
 		if err != nil {
 			if err == io.EOF {
-				log.Trace().Int64("n", n).Msg("Read and wrote to stream")
-				return total, nil
+				break
 			}
 			log.Error().Err(err).Str("path", stream.filename).Msg("Error during stream data")
 			stream.Close()
@@ -303,17 +308,21 @@ func (stream *ClientLogStream) sendData() (int64, error) {
 			return total, err
 		}
 		if n == 0 {
-			log.Trace().Str("stream", stream.streamID).Str("path", stream.filename).Msg("No data streamed")
-			return total, nil
+			break
 		}
 	}
+	if total > 0 {
+		log.Info().Str("stream", stream.streamID).Str("path", stream.filename).Int64("total", total).Msg("Sent data to stream")
+	} else {
+		log.Trace().Str("stream", stream.streamID).Str("path", stream.filename).Msg("No data sent to stream")
+	}
+	return total, nil
 }
 
 // StreamFile will search for a stream in streams list
 func (stream *ClientLogStream) streamFileData() (total int64, err error) {
 	log.Info().Str("path", stream.filename).Int64("pos", stream.LastPos).Msg("Stream file from position")
 	for {
-		log.Info().Str("path", stream.filename).Int64("pos", stream.LastPos).Msg("Sending data from pos")
 		n, err := stream.sendData()
 		if err != nil {
 			log.Error().Err(err).Str("path", stream.filename).Msg("Error during stream data")
@@ -326,17 +335,12 @@ func (stream *ClientLogStream) streamFileData() (total int64, err error) {
 			break
 		}
 		if n > 0 {
-			log.Info().Str("stream", stream.streamID).Str("path", stream.filename).Int64("count", n).Int64("total", total).Msg("Sent data to stream")
+			log.Info().Str("stream", stream.streamID).Str("path", stream.filename).Int64("count", n).Int64("bytes", total).Msg("Sent data to stream")
 			total = total + n
 		} else {
 			idle := time.Now().Sub(stream.LastRead)
-			if idle >= 60*time.Second {
-				log.Debug().Str("path", stream.filename).Dur("idle", idle).Msg("Idle file. Increasing interval")
-				time.Sleep(60 * time.Second)
-			} else {
-				log.Debug().Str("path", stream.filename).Dur("idle", idle).Msg("Idle, sleeping 1s")
-				time.Sleep(10 * time.Second)
-			}
+			log.Debug().Str("path", stream.filename).Dur("idle", idle).Msg("Idle input file")
+			time.Sleep(30 * time.Second)
 		}
 	}
 	return total, nil

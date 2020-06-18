@@ -209,7 +209,7 @@ func handleHeartbeatTimer() {
 	timer := time.NewTicker(time.Second * 10)
 
 	for t := range timer.C {
-		log.Debug().Time("timer", t).Msg("Heartbeat timer")
+		log.Trace().Time("timer", t).Msg("Heartbeat timer")
 	}
 }
 
@@ -221,7 +221,7 @@ func handleWatch(watcher *fsnotify.Watcher, client *loghamster.Client) {
 				log.Debug().Msg("not ok for event watcher")
 				return
 			}
-			log.Debug().Str("path", event.Name).Str("event", event.Op.String()).Msg("received event")
+			log.Trace().Str("path", event.Name).Str("event", event.Op.String()).Msg("received event")
 			if event.Op&fsnotify.Write == fsnotify.Write {
 				log.Debug().Str("file", event.Name).Msg("File changed, trigger file change handler")
 				// On a detected write for a watched file the stream should
