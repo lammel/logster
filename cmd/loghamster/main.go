@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"strconv"
 	"sync"
 	"time"
 
@@ -126,7 +127,7 @@ func main() {
 	}
 
 	if conf.Mode == "server" {
-		server, err := loghamster.NewServer(conf.Server.ListenAddress, conf.Server.BaseDirectory, files)
+		server, err := loghamster.NewServer(conf.Server.Listen, conf.Server.BaseDirectory, files)
 		if err != nil {
 			log.Error().Err(err).Msg("Failed to connect")
 		}
@@ -136,7 +137,7 @@ func main() {
 
 	} else {
 
-		client := loghamster.NewClient(conf.Target.Hostname, files)
+		client := loghamster.NewClient(conf.Target.Hostname+":"+strconv.Itoa(conf.Target.Port), files)
 		log.Info().Msgf("LogHamster client to server %s, creating streams", conf.Server)
 
 		wg.Add(1)
@@ -147,18 +148,16 @@ func main() {
 
 			name := file.Name
 			path := file.Path
-			dir := filepath.Dir(path)
 
 			// Set up a watch listening for filesystem notifications within the
 			// directory of the provided file
-			log.Info().Str("dir", dir).Str("file", path).Msg("Watch directory of file for changes")
-			err = watcher.Add(dir)
-			if err != nil {
-				log.Error().Err(err).Str("file", path).Str("dir", dir).Msg("Failed to watch dir for file")
-			}
-			err = watcher.Add(dir)
-			if err != nil {
-				log.Error().Err(err).Str("file", path).Str("dir", dir).Msg("Failed to watch dir for file")
+			if file.Watch {
+				dir := filepath.Dir(path)
+				log.Info().Str("dir", dir).Str("file", path).Msg("Watch directory of file for changes")
+				err = watcher.Add(dir)
+				if err != nil {
+					log.Error().Err(err).Str("file", path).Str("dir", dir).Msg("Failed to watch dir for file")
+				}
 			}
 
 			log.Debug().Str("name", name).Str("path", path).Msg("Init stream")
