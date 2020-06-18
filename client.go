@@ -342,23 +342,6 @@ func (stream *ClientLogStream) streamFileData() (total int64, err error) {
 	return total, nil
 }
 
-// CloseGraceful will close the stream
-func (stream *ClientLogStream) CloseGraceful() {
-	if stream.conn != nil {
-		stream.writeMessage(fmt.Sprintf("CLOSE %s", stream.streamID))
-		line, err := stream.awaitMessage()
-		if err != nil {
-			log.Error().Err(err).Msg("Error during close")
-		} else {
-			log.Debug().Str("line", line).Msg("Response:")
-			if strings.HasPrefix(line, "OK") {
-				log.Info().Msg("Close acknowledged by server")
-			}
-		}
-		stream.Close()
-	}
-}
-
 // OpenInputFile will open the inputfile for reading starting at
 // the provided position
 func (stream *ClientLogStream) OpenInputFile(pos int64) error {

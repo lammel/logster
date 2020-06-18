@@ -139,11 +139,6 @@ func (stream ServerLogStream) handleCommands() {
 			} else {
 				stream.writeMessage(fmt.Sprintf("OK %d %d", cmdIdx, n))
 			}
-		case "CLOSE":
-			log.Info().Str("stream", stream.streamID).Msg("Close logstream")
-			stream.writeMessage(fmt.Sprintf("OK %d", cmdIdx))
-			stream.Close()
-			return
 		default:
 			stream.writeMessage("ERR 500 Unknown command" + cmd)
 		}
