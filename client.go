@@ -30,7 +30,7 @@ type ClientLogStream struct {
 
 // NewClient initiates a new client connection
 func NewClient(server string, files *FileManager) *Client {
-	streams := []*ClientLogStream{nil}
+	streams := []*ClientLogStream{}
 	client := Client{server, streams, files}
 	return &client
 }
@@ -78,9 +78,9 @@ func (client *Client) removeStream(stream *ClientLogStream) error {
 func (client *Client) FindStreamByPath(path string) *ClientLogStream {
 	var stream *ClientLogStream
 	streams := client.streams
-	for _, s := range streams {
+	for i, s := range streams {
 		if s == nil {
-			log.Debug().Interface("stream", s).Msg("Skipping nil stream")
+			log.Debug().Interface("stream", s).Int("idx", i).Msg("Skipping nil stream")
 			continue
 		}
 		if s.filename == path {
