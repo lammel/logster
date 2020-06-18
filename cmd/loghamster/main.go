@@ -17,7 +17,6 @@ import (
 	"github.com/rs/zerolog/log"
 )
 
-var version = "1.0.7"
 var config loghamster.Configuration
 
 func main() {
@@ -28,7 +27,7 @@ func main() {
 	consoleLog := log.Output(zerolog.ConsoleWriter{Out: os.Stderr, TimeFormat: zerolog.TimeFieldFormat})
 	log.Logger = consoleLog
 
-	log.Info().Int("pid", os.Getpid()).Msgf("Starting Hydra-HTTP v%s", version)
+	log.Info().Int("pid", os.Getpid()).Msgf("Starting Loghamster v%s", loghamster.Version)
 
 	conf := &config
 

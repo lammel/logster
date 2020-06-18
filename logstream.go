@@ -12,7 +12,7 @@ import (
 
 const (
 	// Version string for application
-	Version string = "0.1"
+	Version string = "0.2.0"
 
 	// Buffersize used for internal streaming to/from file
 	defaultBuffersize int = 32 * 1024
