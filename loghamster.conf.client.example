@@ -1,13 +1,19 @@
 # LogHamster client configuration example in TOML format
 
 debug = true
-server="127.0.0.1:8000"
 
-# Define each stream like this
-[[stream]]
-name = "messages"
-path = "/var/log/messages"
+[target]
+  hostname = "127.0.0.1"
+  port = 7007
 
-[[stream]]
-name = "test"
-path = "/tmp/log/test.log"
+[prometheus]
+  listen = ":8091"
+  enabled = false
+
+[[input]]
+  watch = false
+  path = "/var/log/syslog"
+
+[[input]]
+  watch = true
+  path = "/tmp/log/test.log"

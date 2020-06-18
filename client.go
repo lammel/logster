@@ -312,7 +312,7 @@ func (stream *ClientLogStream) sendData() (int64, error) {
 		}
 	}
 	if total > 0 {
-		log.Info().Str("stream", stream.streamID).Str("path", stream.filename).Int64("total", total).Msg("Sent data to stream")
+		log.Debug().Str("stream", stream.streamID).Str("path", stream.filename).Int64("bytes", total).Msg("Sent data to stream")
 	} else {
 		log.Trace().Str("stream", stream.streamID).Str("path", stream.filename).Msg("No data sent to stream")
 	}
@@ -335,14 +335,20 @@ func (stream *ClientLogStream) streamFileData() (total int64, err error) {
 			break
 		}
 		if n > 0 {
-			log.Info().Str("stream", stream.streamID).Str("path", stream.filename).Int64("count", n).Int64("bytes", total).Msg("Sent data to stream")
+			log.Debug().Str("stream", stream.streamID).Str("path", stream.filename).Int64("count", n).Int64("bytes", total).Msg("Sent data to stream")
 			total = total + n
 		} else {
 			idle := time.Now().Sub(stream.LastRead)
 			log.Debug().Str("path", stream.filename).Dur("idle", idle).Msg("Idle input file")
-			time.Sleep(30 * time.Second)
+			if idle > 5*time.Second {
+				time.Sleep(30 * time.Second)
+			} else {
+				time.Sleep(2 * time.Second)
+			}
+
 		}
 	}
+	log.Info().Str("stream", stream.streamID).Str("path", stream.filename).Int64("bytes", total).Msg("Sent data to stream")
 	return total, nil
 }
 

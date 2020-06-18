@@ -1,17 +1,24 @@
 debug = true
-listen = "127.0.0.1:8000"
-directory = "/tmp/out"
+
+[server]
+listen = ":7007"
+baseDirectory = "/var/log/loghamster"
+pathTemplate = "$HOST/$PATH"
 
 [prometheus]
-  listen = ":8091"
-  enabled = true
+listen = ":8092"
+enabled = false
 
-[output]
+# Named outputs with special rules
+[[output]]
+path = "/var/log/syslog"
 
-  [output.message]
-    path = "/var/log/messages"
+[[output]]
+name = "sipproxyd"
+path = "/var/log/sipproxyd.log"
 
-  [output.test]
-    path = "/tmp/log/test.log"
+[[output]]
+name = "test"
+path = "/tmp/log/test.log"
 
 

@@ -15,7 +15,7 @@ type Configuration struct {
 
 // ServerConfig for settings of a loghamster in server/receiver mode
 type ServerConfig struct {
-	ListenAddress string `default:":7007"`
+	Listen        string `default:":7007"`
 	BaseDirectory string `default:"/var/log/loghamster"`
 	PathTemplate  string `default:"$HOST/$FILE"`
 }
@@ -23,7 +23,7 @@ type ServerConfig struct {
 // TargetConfig for settings of a loghamster in client/sender mode
 type TargetConfig struct {
 	Hostname string
-	Port     int  `default:":7007"`
+	Port     int  `default:"7007"`
 	Compress bool `default:"true"`
 }
 
