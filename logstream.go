@@ -77,7 +77,7 @@ func (stream LogStream) awaitMessage() (string, error) {
 	}
 	reader := bufio.NewReader(conn)
 	log.Debug().Str("stream", stream.streamID).Msg("Reading and awaiting message on stream")
-	const timeoutDuration = 5 * time.Second
+	const timeoutDuration = 3 * time.Second
 	// conn.SetReadDeadline(time.Now().Add(timeoutDuration))
 	line, err := reader.ReadString('\n')
 	// conn.SetReadDeadline(time.Unix(0, 0))

@@ -16,18 +16,22 @@ import (
 type Client struct {
 	server  string
 	streams []*ClientLogStream
+	Files   *FileManager
 }
 
 // ClientLogStream handles a log stream
 type ClientLogStream struct {
 	*LogStream
-	server string
+	server    string
+	InputFile *os.File
+	LastPos   int64
+	LastRead  time.Time
 }
 
 // NewClient initiates a new client connection
-func NewClient(server string) *Client {
+func NewClient(server string, files *FileManager) *Client {
 	streams := []*ClientLogStream{nil}
-	client := Client{server, streams}
+	client := Client{server, streams, files}
 	return &client
 }
 
@@ -87,10 +91,53 @@ func (client *Client) FindStreamByPath(path string) *ClientLogStream {
 	return stream
 }
 
+// HandleFileChange shall trigger a stream read/write (read from file write to target)
+// TODO: May not be called on every write
+func (client *Client) HandleFileChange(path string) error {
+	stream := client.FindStreamByPath(path)
+	if stream != nil {
+		if stream.InputFile != nil {
+			stream.sendData()
+		}
+	} else {
+		if client.Files.FindInputByPath(path) != nil {
+			client.NewLogStream(client.server, path)
+		}
+	}
+	return nil
+}
+
+// HandleFileCreate shall reopen an existing stream or create a new stream
+func (client *Client) HandleFileCreate(path string) error {
+	stream := client.FindStreamByPath(path)
+	if stream != nil {
+		stream.OpenInputFile(0)
+		if stream.InputFile != nil {
+			stream.sendData()
+		}
+	} else {
+		if client.Files.FindInputByPath(path) != nil {
+			client.NewLogStream(client.server, path)
+		}
+	}
+	return nil
+}
+
+// HandleFileDelete shall close an existing stream
+func (client *Client) HandleFileDelete(path string) error {
+	stream := client.FindStreamByPath(path)
+	if stream != nil {
+		stream.Close()
+	} else {
+		log.Debug().Str("path", stream.filename).Msg("No stream found")
+	}
+	return nil
+}
+
 // NewLogStream stream
 func NewLogStream(server, hostname, filename string) ClientLogStream {
 	source := LogStream{nil, "", hostname, filename}
-	s := ClientLogStream{&source, server}
+	s := ClientLogStream{&source, server, nil, 0, time.Now()}
 	return s
 }
 
@@ -160,17 +207,10 @@ func (stream *ClientLogStream) Reconnect() error {
 	return nil
 }
 
-func closeFile(file *os.File) {
-	log.Info().Msg("Closing file")
-	file.Close()
-}
-
 // StreamFile will search for a stream in streams list
 func (stream *ClientLogStream) StreamFile(path string, lastPos int64) (int64, error) {
 	total := int64(0)
-	pos := lastPos
 	var lastErr error
-	var file *os.File
 	var err error
 	retry := 0
 	const maxDelay = 30
@@ -184,24 +224,16 @@ func (stream *ClientLogStream) StreamFile(path string, lastPos int64) (int64, er
 				log.Error().Err(err).Str("server", stream.server).Msg("Failed to connect initially")
 			}
 		}
-		if file == nil {
-			file, err = os.Open(path)
-			defer closeFile(file)
-		}
+
+		err = stream.OpenInputFile(lastPos)
 		if err != nil {
 			log.Error().Err(err).Str("path", path).Msg("Unable to open file")
 			return total, err
 		}
-		info, _ := file.Stat()
-		if info.Size() < pos {
-			log.Info().Int64("pos", pos).Int64("size", info.Size()).Msg("Last position greater than file size. Starting from beginning")
-			pos = 0
-		}
 		if stream.conn != nil {
-			n, err := stream.streamFileData(file, pos)
+			n, err := stream.streamFileData()
 			total = total + n
-			pos = pos + n
-			log.Debug().Err(err).Int64("read", n).Int64("pos", pos).Int64("size", info.Size()).Msg("Stream data completed")
+			log.Debug().Err(err).Int64("read", n).Int64("pos", stream.LastPos).Msg("Stream data completed")
 		}
 
 		if err != nil {
@@ -233,38 +265,35 @@ func (stream *ClientLogStream) StreamFile(path string, lastPos int64) (int64, er
 		}
 
 	}
-
+	stream.CloseInputFile()
 	return total, lastErr
 }
 
-// StreamFile will search for a stream in streams list
-func (stream *ClientLogStream) streamFileData(file *os.File, lastPos int64) (int64, error) {
-	log.Info().Str("path", file.Name()).Int64("pos", lastPos).Msg("Stream file from position")
-	file.Seek(lastPos, 0)
+// sendData will read data and write to the steam connection
+// TODO: this operation must be synced
+func (stream *ClientLogStream) sendData() (int64, error) {
+	if stream.InputFile == nil {
+		log.Error().Msg("Input file is nil, return ErrClosedPipe")
+		return 0, io.ErrClosedPipe
+	}
 	total := int64(0)
 	bufsize := int64(defaultBuffersize)
-	lastRead := time.Now()
-	// buf := make([]byte, defaultBuffersize)
+	// stream.InputFile.Seek(stream.LastPos, 0)
 	for {
-		log.Info().Str("path", file.Name()).Int64("pos", lastPos+total).Msg("Sending data from pos")
-		n, err := io.CopyN(stream.conn, file, bufsize)
-		if n > 0 {
-			log.Info().Err(err).Int64("n", n).Msg("Copy stream returned")
-			lastRead = time.Now()
+		log.Trace().Str("path", stream.filename).Int64("pos", stream.LastPos).Msg("Sending data from pos")
+		n, err := io.CopyN(stream.conn, stream.InputFile, bufsize)
+		if n > 0 && (err == nil || err == io.EOF) {
+			log.Info().Str("stream", stream.streamID).Str("path", stream.filename).Int64("count", n).Int64("total", total).Msg("Sent data to stream")
+			stream.LastPos = stream.LastPos + n
+			stream.LastRead = time.Now()
+			total = total + n
 		}
 		if err != nil {
 			if err == io.EOF {
-				total = total + n
-				idle := time.Now().Sub(lastRead)
-				if idle > 10*time.Second {
-					log.Debug().Str("path", file.Name()).Dur("idle", idle).Msg("Idle file. Increasing interval")
-					time.Sleep(10 * time.Second)
-				} else {
-					time.Sleep(1 * time.Second)
-				}
-				continue
+				log.Trace().Int64("n", n).Msg("Read and wrote to stream")
+				return total, nil
 			}
-			log.Error().Err(err).Str("path", file.Name()).Msg("Error during stream data")
+			log.Error().Err(err).Str("path", stream.filename).Msg("Error during stream data")
 			stream.Close()
 			// Strange workaround to restore correct position, to avoid sending too few data
 			if (err == io.ErrClosedPipe || err == io.ErrUnexpectedEOF || strings.Contains(err.Error(), "broken pipe")) && total > int64(defaultBuffersize) {
@@ -273,12 +302,41 @@ func (stream *ClientLogStream) streamFileData(file *os.File, lastPos int64) (int
 			}
 			return total, err
 		}
+		if n == 0 {
+			log.Trace().Str("stream", stream.streamID).Str("path", stream.filename).Msg("No data streamed")
+			return total, nil
+		}
+	}
+}
+
+// StreamFile will search for a stream in streams list
+func (stream *ClientLogStream) streamFileData() (total int64, err error) {
+	log.Info().Str("path", stream.filename).Int64("pos", stream.LastPos).Msg("Stream file from position")
+	for {
+		log.Info().Str("path", stream.filename).Int64("pos", stream.LastPos).Msg("Sending data from pos")
+		n, err := stream.sendData()
+		if err != nil {
+			log.Error().Err(err).Str("path", stream.filename).Msg("Error during stream data")
+			stream.Close()
+			// Strange workaround to restore correct position, to avoid sending too few data
+			if (err == io.ErrClosedPipe || err == io.ErrUnexpectedEOF || strings.Contains(err.Error(), "broken pipe")) && total > int64(defaultBuffersize) {
+				log.Warn().Msg("Apply workaround to avoid wrong position")
+				total = total - int64(defaultBuffersize)
+			}
+			break
+		}
 		if n > 0 {
-			// log.Info().Err(err).Int64("n", n).Str("buf", string(buf)).Msg("Copy stream returned")
-			log.Info().Str("stream", stream.streamID).Str("path", file.Name()).Int64("count", n).Int64("total", total).Msg("Sent data to stream")
+			log.Info().Str("stream", stream.streamID).Str("path", stream.filename).Int64("count", n).Int64("total", total).Msg("Sent data to stream")
 			total = total + n
 		} else {
-			time.Sleep(1 * time.Second)
+			idle := time.Now().Sub(stream.LastRead)
+			if idle >= 60*time.Second {
+				log.Debug().Str("path", stream.filename).Dur("idle", idle).Msg("Idle file. Increasing interval")
+				time.Sleep(60 * time.Second)
+			} else {
+				log.Debug().Str("path", stream.filename).Dur("idle", idle).Msg("Idle, sleeping 1s")
+				time.Sleep(10 * time.Second)
+			}
 		}
 	}
 	return total, nil
@@ -301,13 +359,51 @@ func (stream *ClientLogStream) CloseGraceful() {
 	}
 }
 
+// OpenInputFile will open the inputfile for reading starting at
+// the provided position
+func (stream *ClientLogStream) OpenInputFile(pos int64) error {
+	stream.CloseInputFile()
+	log.Debug().Str("path", stream.filename).Msg("Opening input file")
+	file, err := os.Open(stream.filename)
+	if err != nil {
+		log.Error().Err(err).Str("path", stream.filename).Msg("Failed to open input file")
+		return err
+	}
+	stream.InputFile = file
+	info, _ := stream.InputFile.Stat()
+	log.Info().Str("path", stream.filename).Int64("size", info.Size()).Msg("Opened input file")
+	if info.Size() < pos {
+		log.Info().Int64("pos", stream.LastPos).Int64("size", info.Size()).Msg("Last position greater than file size. Starting from beginning")
+		// TODO: Handle rotation gracefully
+		stream.LastPos = 0
+	}
+	seekpos, err := stream.InputFile.Seek(pos, 0)
+	if err != nil {
+		log.Debug().Err(err).Str("path", stream.filename).Int64("pos", pos).Msg("Failed to seek to pos")
+	}
+	log.Debug().Str("path", stream.filename).Int64("pos", seekpos).Msg("Seeked to pos in input file")
+	stream.LastPos = seekpos
+
+	return nil
+}
+
+// CloseInputFile will close the inputfile for this stream
+func (stream *ClientLogStream) CloseInputFile() {
+	if stream.InputFile != nil {
+		log.Info().Str("path", stream.filename).Msg("Closing input file")
+		stream.InputFile.Close()
+		stream.InputFile = nil
+	}
+}
+
 // Close will close the stream
 func (stream *ClientLogStream) Close() {
+	stream.CloseInputFile()
 	if stream.conn != nil {
-		log.Info().Msgf("Closing stream %s", stream.streamID)
+		log.Info().Str("stream", stream.streamID).Msg("Closing stream")
 		stream.conn.Close()
 		stream.conn = nil
 	} else {
-		log.Debug().Msgf("Stream %s already closed", stream.streamID)
+		log.Debug().Str("stream", stream.streamID).Msg("Stream already closed")
 	}
 }

@@ -7,11 +7,12 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"sync"
 	"time"
 
+	"github.com/fsnotify/fsnotify"
 	"github.com/jinzhu/configor"
-	"github.com/rjeczalik/notify"
 	"github.com/rs/zerolog"
 	"github.com/rs/zerolog/log"
 )
@@ -102,14 +103,18 @@ func main() {
 	var wg sync.WaitGroup
 	// Make the channel buffered to ensure no event is dropped. Notify will drop
 	// an event if the receiver is not able to keep up the sending pace.
-	eventCh := make(chan notify.EventInfo, 5)
 	signalCh := make(chan os.Signal, 1)
 	signal.Notify(signalCh, os.Interrupt)
 
-	wg.Add(3)
+	watcher, err := fsnotify.NewWatcher()
+	if err != nil {
+		log.Fatal().Err(err).Msg("Unable to initialize filesystem watcher")
+	}
+	defer watcher.Close()
+
+	wg.Add(2)
 	log.Info().Msg("Setup signal, watch and heartbeat handlers")
 	go handleSignal(signalCh)
-	go handleWatch(eventCh)
 	go handleHeartbeatTimer()
 
 	// Detect mode if not defined
@@ -132,34 +137,41 @@ func main() {
 
 	} else {
 
-		client := loghamster.NewClient(conf.Target.Hostname)
+		client := loghamster.NewClient(conf.Target.Hostname, files)
 		log.Info().Msgf("LogHamster client to server %s, creating streams", conf.Server)
+
+		wg.Add(1)
+		go handleWatch(watcher, client)
 
 		for idx, file := range files.Inputs {
 			log.Debug().Msgf("Process stream #%d: %s", idx, file)
 
 			name := file.Name
 			path := file.Path
+			dir := filepath.Dir(path)
 
-			// Set up a watchpoint listening for inotify-specific events within a
-			// current working directory. Dispatch each InCloseWrite and InMovedTo
-			// events separately to c.
-			if err := notify.Watch(path, eventCh, notify.InCloseWrite, notify.InMovedTo, notify.InModify); err != nil {
-				log.Fatal().Err(err)
+			// Set up a watch listening for filesystem notifications within the
+			// directory of the provided file
+			log.Info().Str("dir", dir).Str("file", path).Msg("Watch directory of file for changes")
+			err = watcher.Add(dir)
+			if err != nil {
+				log.Error().Err(err).Str("file", path).Str("dir", dir).Msg("Failed to watch dir for file")
 			}
-			defer notify.Stop(eventCh)
-			log.Info().Str("path", path).Msg("Starting watch")
+			err = watcher.Add(dir)
+			if err != nil {
+				log.Error().Err(err).Str("file", path).Str("dir", dir).Msg("Failed to watch dir for file")
+			}
 
-			log.Debug().Msgf("Init stream %s: %s", name, path)
+			log.Debug().Str("name", name).Str("path", path).Msg("Init stream")
 			// Should add watch now
 			s, err := client.NewLogStream(name, path)
 			if err != nil {
-				log.Error().Msgf("Failed to start stream %s:%s", name, path)
+				log.Error().Err(err).Str("name", name).Str("path", path).Msg("Failed to start stream")
 			}
-			log.Info().Msgf("Starting stream %s:%s", name, path)
+			log.Info().Str("name", name).Str("path", path).Msg("Starting stream")
 			wg.Add(1)
 			go s.StreamFile(path, 0)
-			log.Info().Msgf("Stream %s initialized", name)
+			log.Debug().Str("name", name).Msg("Stream init succeeded")
 		}
 	}
 
@@ -201,18 +213,47 @@ func handleHeartbeatTimer() {
 	}
 }
 
-func handleWatch(ch <-chan notify.EventInfo) {
-	for ei := range ch {
-		// Block until an event is received.
-		switch ei.Event() {
-		case notify.InModify:
-			log.Info().Str("path", ei.Path()).Msg("File was modified.")
-		case notify.InCloseWrite:
-			log.Info().Str("path", ei.Path()).Msg("File was closed.")
-		case notify.InMovedTo:
-			log.Info().Str("path", ei.Path()).Msg("File was moved.")
-		default:
-			log.Info().Str("event", ei.Event().String()).Str("path", ei.Path()).Msg("Unknown event.")
+func handleWatch(watcher *fsnotify.Watcher, client *loghamster.Client) {
+	for {
+		select {
+		case event, ok := <-watcher.Events:
+			if !ok {
+				log.Debug().Msg("not ok for event watcher")
+				return
+			}
+			log.Debug().Str("path", event.Name).Str("event", event.Op.String()).Msg("received event")
+			if event.Op&fsnotify.Write == fsnotify.Write {
+				log.Debug().Str("file", event.Name).Msg("File changed, trigger file change handler")
+				// On a detected write for a watched file the stream should
+				if err := client.HandleFileChange(event.Name); err != nil {
+					log.Error().Err(err).Str("path", event.Name).Msg("Error for handling file creation")
+				}
+			}
+			if event.Op&fsnotify.Create == fsnotify.Create {
+				log.Debug().Str("file", event.Name).Msg("File created, trigger file create handler")
+				if err := client.HandleFileCreate(event.Name); err != nil {
+					log.Error().Err(err).Str("path", event.Name).Msg("Error for handling file creation")
+				}
+			}
+			if event.Op&fsnotify.Remove == fsnotify.Remove {
+				log.Debug().Str("file", event.Name).Msg("File removed, trigger file delete handler")
+				if err := client.HandleFileDelete(event.Name); err != nil {
+					log.Error().Err(err).Str("path", event.Name).Msg("Error for handling file creation")
+				}
+			}
+			if event.Op&fsnotify.Rename == fsnotify.Rename {
+				log.Debug().Str("file", event.Name).Msg("File renamed, trigger file delete handler")
+				if err := client.HandleFileDelete(event.Name); err != nil {
+					log.Error().Err(err).Str("path", event.Name).Msg("Error for handling file creation")
+				}
+			}
+
+		case err, ok := <-watcher.Errors:
+			if !ok {
+				log.Debug().Msg("not ok for error watcher")
+				return
+			}
+			log.Debug().Err(err).Msg("error watching file")
 		}
 	}
 }
