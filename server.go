@@ -5,13 +5,11 @@ import (
 	"io"
 	"math/rand"
 	"net"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
-	"github.com/VictoriaMetrics/metrics"
 	"github.com/rs/zerolog/log"
 )
 
@@ -20,7 +18,7 @@ type Server struct {
 	listener        *net.Listener
 	Address         string
 	OutputDirectory string
-	streamHandler   func(hostname string, file string) string
+	files           *FileManager
 	streams         []ServerLogStream
 }
 
@@ -31,36 +29,8 @@ type ServerLogStream struct {
 	localFile *os.File
 }
 
-// Metric counters
-var (
-	// Number of active clients sending data
-	metricClientsActive = metrics.NewCounter("loghamster_clients_active")
-	// Number of connected (active and idle) clients
-	metricClientsConnected = metrics.NewCounter("loghamster_clients_connected")
-	// Total number of connections since start
-	metricClientConnectsTotal = metrics.NewCounter("loghamster_connections_total")
-	// Total number of bytes received since start
-	metricBytesRecvTotal = metrics.NewCounter("loghamster_bytes_received_total")
-)
-
-// ListenPrometheus will provide application metrics via HTTP under e/metrics
-func ListenPrometheus(listen string) {
-	// Register the summary and the histogram with Prometheus's default registry.
-
-	log.Debug().Str("listen", listen).Msg("Starting prometheus metrics provider")
-	http.HandleFunc("/metrics", func(w http.ResponseWriter, req *http.Request) {
-		metrics.WritePrometheus(w, true)
-	})
-	err := http.ListenAndServe(listen, nil)
-	if err != nil {
-		log.Fatal().Err(err).Msg("Failed to listen for prometheus HTTP")
-	} else {
-		log.Info().Str("listen", listen).Msg("Listen for prometheus metrics on ")
-	}
-}
-
 // NewServer initiates a new client connection
-func NewServer(address string, directory string, handler func(string)) (*Server, error) {
+func NewServer(address string, directory string, files *FileManager) (*Server, error) {
 
 	log.Info().Str("listen", address).Msg("Attempt to listen")
 	// connect to this socket
@@ -72,7 +42,7 @@ func NewServer(address string, directory string, handler func(string)) (*Server,
 
 	log.Info().Interface("listener", l).Msg("Accept connections now")
 
-	server := Server{&l, address, directory, nil, nil}
+	server := Server{&l, address, directory, files, nil}
 	go server.acceptConnections(l)
 	return &server, err
 }
@@ -207,14 +177,9 @@ func (stream *ServerLogStream) initStreamSink(hostname string, file string) erro
 	// Map to logfile now and open it for writing
 	// TODO: use correct filename from mapping or deny init
 	var localfile string
-	if stream.server.streamHandler != nil {
-		localfile = stream.server.streamHandler(hostname, file)
-		log.Info().Msgf("Using configured output file for %s:%s from config: %s", hostname, file, localfile)
-	} else {
-		directory := stream.server.OutputDirectory
-		localfile = fmt.Sprintf("%s/%s/%s.out.log", directory, hostname, strings.Trim(strings.Replace(file, "/", "_", -1), "_/"))
-		log.Info().Msgf("Initialized stream sink for %s:%s using default mapping: %s", hostname, file, localfile)
-	}
+	directory := stream.server.OutputDirectory
+	localfile = fmt.Sprintf("%s/%s/%s.out.log", directory, hostname, strings.Trim(strings.Replace(file, "/", "_", -1), "_/"))
+	log.Info().Msgf("Initialized stream sink for %s:%s using default mapping: %s", hostname, file, localfile)
 	ensureDir(localfile)
 	f, err := os.OpenFile(localfile, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0660)
 	if err != nil {

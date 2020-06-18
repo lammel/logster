@@ -29,20 +29,17 @@ get a list of files to stream on the commandline.
 The configuration file will allow more flexible configuration for the
 files to stream.
 
-    [server]
+    [target]
     hostname=log.mgmt.neotel.at
-    port=8901
-    compression=none     # gzip, lz4
+    port=7007
+    compress=true
 
-    [[stream]
+    [[input]]
+    name = sipproyxd
     path=/var/log/messages
     method=watch
     onrotate=follow
-
-    [[stream]]
-    directory=/var/log/sipproxyd/backup
-    method=watch
-    filepattern='*.log.*.gz'
+    
 
 ### Log streaming
 
